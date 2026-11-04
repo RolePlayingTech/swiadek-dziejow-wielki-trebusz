@@ -102,12 +102,12 @@ export function FortressAndCamp({
 
   // 1. Jednolita siatka terenu oblężniczego z kolorami wierzchołków (błoto pod blidą, łąka, fosa, skarpa) — 1 draw call!
   const terrainGeo = useMemo(() => {
-    const segX = 110;
-    const segZ = 28;
-    const minX = -85;
-    const maxX = Math.max(320, mission.castleDistanceM + 85);
+    const segX = 148;
+    const segZ = 34;
+    const minX = -220;
+    const maxX = Math.max(380, mission.castleDistanceM + 130);
     const widthX = maxX - minX;
-    const depthZ = 150;
+    const depthZ = 240;
 
     const geo = new THREE.PlaneGeometry(widthX, depthZ, segX, segZ);
     geo.rotateX(-Math.PI * 0.5);
@@ -579,7 +579,7 @@ export function FortressAndCamp({
       }
     }
 
-    // Komediowa fizyka żeliwnego kotła i namiotu przy trafieniu wstecznym (camp_backfire)!
+    // Komediowa fizyka kutego kotła obozowego i namiotu przy trafieniu wstecznym (camp_backfire)!
     const isCampHit =
       hasImpacted && activeResult?.outcome === "camp_backfire" && dtImpact > 0;
     if (cauldronFlyRef.current) {
@@ -600,11 +600,12 @@ export function FortressAndCamp({
     }
   });
 
-  // Pozycja obozu i kotła z grochówką (gdy gracz strzela wstecz, kocioł ustawia się idealnie w punkcie uderzenia!)
+  // Pozycja obozu i kutego kotła z grochówką (gdy gracz strzela wstecz 0°–7°, cały obóz z kotłem ustawia się w punkcie uderzenia -130..-13 m!)
   const cauldronWorldX =
     activeResult?.outcome === "camp_backfire"
-      ? THREE.MathUtils.clamp(activeResult.impactDistanceM, -42, -13)
+      ? THREE.MathUtils.clamp(activeResult.impactDistanceM, -130, -13)
       : -24.5;
+  const campShiftX = cauldronWorldX + 24.5;
 
   const moatCenterX = castleLayout.groupX - 11.5;
 
@@ -675,15 +676,15 @@ export function FortressAndCamp({
         .multiply(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rx, ry, rz)));
 
     const canvasParts = [
-      { geometry: new THREE.CylinderGeometry(2.2, 2.4, 2.8, 8), matrix: mk(-33.5, 1.4, 4.2) },
-      { geometry: new THREE.ConeGeometry(2.35, 2.35, 4), matrix: mk(-21.2, 1.15, 4.6, 0, Math.PI * 0.25, 0) },
+      { geometry: new THREE.CylinderGeometry(2.2, 2.4, 2.8, 8), matrix: mk(-33.5, 1.4, -7.2) },
+      { geometry: new THREE.ConeGeometry(2.35, 2.35, 4), matrix: mk(-21.2, 1.15, -6.4, 0, Math.PI * 0.25, 0) },
     ];
     const campCanvasGeo = mergeStaticGeometries(canvasParts);
     canvasParts.forEach((p) => p.geometry.dispose());
 
     const colorParts = [
-      { geometry: new THREE.ConeGeometry(2.45, 2.0, 8), matrix: mk(-33.5, 3.75, 4.2), color: "#b45309" },
-      ...[-3.2, -1.6, 1.6, 3.2].map((pz, idx) => ({
+      { geometry: new THREE.ConeGeometry(2.45, 2.0, 8), matrix: mk(-33.5, 3.75, -7.2), color: "#b45309" },
+      ...[-4.2, -2.6, -1.2, 1.4].map((pz, idx) => ({
         geometry: new THREE.BoxGeometry(0.12, 1.55, 0.78),
         matrix: mk(-18.2, 0.78, pz, 0, 0, -0.24),
         color: idx % 2 === 0 ? "#991b1b" : "#b45309",
@@ -694,7 +695,7 @@ export function FortressAndCamp({
 
     const boulderParts = [-0.6, 0, 0.65].map((ox) => ({
       geometry: new THREE.DodecahedronGeometry(0.32, 1),
-      matrix: mk(-19.1 + ox, 0.32, 3.4),
+      matrix: mk(-19.1 + ox, 0.32, -2.8),
     }));
     const campBouldersGeo = mergeStaticGeometries(boulderParts);
     boulderParts.forEach((p) => p.geometry.dispose());
@@ -835,7 +836,13 @@ export function FortressAndCamp({
         args={[dustSphereGeo, undefined, PARTICLE_COUNT]}
         frustumCulled={false}
       >
-        <meshBasicMaterial color="#ffffff" transparent opacity={0.86} />
+        <meshStandardMaterial
+          color="#f4ead5"
+          roughness={0.9}
+          metalness={0.02}
+          transparent
+          opacity={0.82}
+        />
       </instancedMesh>
 
       {/* === 3. MOSIĘŻNY PIERŚCIEŃ CELOWNICZY I CHORĄGIEW AKTYWNEJ STREFY MISJI === */}
@@ -863,26 +870,28 @@ export function FortressAndCamp({
         </group>
       </group>
 
-      {/* === 4. POLSKO-LITEWSKI OBÓZ OBLĘŻNICZY ZA PLECAMI TREBUSZA (x = -18..-38 m) === */}
+      {/* === 4. POLSKO-LITEWSKI OBÓZ OBLĘŻNICZY ZA PLECAMI TREBUSZA === */}
       <group name="polish-lithuanian-siege-camp">
-        {/* Zespolone namioty boczne, dachy, pawęże i zapasowe głazy (3 draw calle zamiast 14!) */}
-        <mesh
-          geometry={campStaticGeos.campCanvasGeo}
-          material={mats.tentCanvas}
-          castShadow
-          receiveShadow
-        />
-        <mesh geometry={campStaticGeos.campAccentsGeo} castShadow>
-          <meshStandardMaterial vertexColors roughness={0.82} />
-        </mesh>
-        <mesh
-          geometry={campStaticGeos.campBouldersGeo}
-          material={mats.fieldGranite}
-          castShadow
-        />
+        {/* Zespolone namioty boczne, dachy, pawęże i zapasowe głazy przesuwane spójnie ze strefą uderzenia obozowego */}
+        <group position={[campShiftX, 0, 0]}>
+          <mesh
+            geometry={campStaticGeos.campCanvasGeo}
+            material={mats.tentCanvas}
+            castShadow
+            receiveShadow
+          />
+          <mesh geometry={campStaticGeos.campAccentsGeo} castShadow>
+            <meshStandardMaterial vertexColors roughness={0.82} />
+          </mesh>
+          <mesh
+            geometry={campStaticGeos.campBouldersGeo}
+            material={mats.fieldGranite}
+            castShadow
+          />
+        </group>
 
         {/* Namiot rycerski #1 (blisko kotła — przechyla się komediowo po samobóju!) */}
-        <group ref={campTentTiltRef} position={[cauldronWorldX - 3.6, 0, -3.4]}>
+        <group ref={campTentTiltRef} position={[cauldronWorldX - 3.6, 0, -3.8]}>
           <mesh position={[0, 1.55, 0]} material={mats.tentCanvas} castShadow receiveShadow>
             <cylinderGeometry args={[2.55, 2.75, 3.1, 10]} />
           </mesh>
@@ -896,7 +905,7 @@ export function FortressAndCamp({
           </mesh>
         </group>
 
-        {/* OGNISKO OBOZOWE I WIELKI ŻELIWNY KOCIOŁ Z GROCHÓWKĄ (cel komediowych strzałów wstecznych 0°–7°!) */}
+        {/* OGNISKO OBOZOWE I WIELKI KUTY KOCIOŁ Z GROCHÓWKĄ (cel komediowych strzałów wstecznych 0°–7°!) */}
         <group position={[cauldronWorldX, 0, 0]}>
           <mesh geometry={campStaticGeos.fireLogsGeo} material={mats.tarredOak} />
           <mesh position={[0, 0.26, 0]}>
@@ -913,7 +922,7 @@ export function FortressAndCamp({
 
           <mesh geometry={campStaticGeos.tripodGeo} material={mats.forgedIron} castShadow />
 
-          {/* Wielki żeliwny kocioł z grochówką (wylatuje w powietrze przy camp_backfire!) */}
+          {/* Kuty kocioł obozowy z grochówką (wylatuje w powietrze przy camp_backfire!) */}
           <group ref={cauldronFlyRef} position={[0, 0.68, 0]}>
             <mesh geometry={campStaticGeos.cauldronIronGeo} material={mats.forgedIron} castShadow />
             <mesh position={[0, 0.36, 0]} rotation={[-Math.PI * 0.5, 0, 0]}>

@@ -37,7 +37,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_ORIGIN),
   title: "Wielki Trebusz: Tajemnica Palca Spustowego (3D) | Świadek Dziejów",
   description:
-    "Interaktywny eksponat i minigra 3D Świadka Dziejów. Naciągnij 15-metrową średniowieczną blidę, wygnij żelazny palec spustowy, odkryj fizykę potrójnego wahadła Lagrange’a i skrusz ceglany mur zamku Zakonu — albo zbombarduj własny obóz!",
+    "Interaktywny eksponat i minigra 3D Świadka Dziejów. Naciągnij 16-metrową średniowieczną blidę, wygnij żelazny palec spustowy, odkryj fizykę potrójnego wahadła Lagrange’a i skrusz ceglany mur zamku Zakonu — albo zbombarduj własny obóz!",
   alternates: {
     canonical: CANONICAL_URL,
   },
@@ -62,7 +62,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Wielki Trebusz: Tajemnica Palca Spustowego (3D) | Świadek Dziejów",
     description:
-      "Wygnij żelazny palec spustowy na końcu 15-metrowej dębowej belki i skrusz gotycki mur w 3D — z żywym komentarzem Świadka Dziejów.",
+      "Wygnij żelazny palec spustowy na końcu 16-metrowej dębowej belki i skrusz gotycki mur w 3D — z żywym komentarzem Świadka Dziejów.",
     images: [`${SITE_ORIGIN}${BASE_PATH}/api/og`],
   },
 };
@@ -74,6 +74,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pl" className="dark">
+      <head>
+        <link rel="preload" as="image" href={`${BASE_PATH}/swiadek-portrait.jpg`} />
+      </head>
       <body
         className={`${playfair.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable} antialiased bg-[#08070a] text-[#f3ede2] selection:bg-[#d4a054]/30 selection:text-[#f0c878]`}
       >

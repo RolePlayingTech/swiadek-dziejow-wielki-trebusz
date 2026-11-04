@@ -200,7 +200,7 @@ export function HistoricalSourcesDrawer({
                 <div>
                   <div className="mb-1.5 flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#d4a054]">
                     <Scale className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span>Kompendium źródłowe • Pogranicze 1362–1405</span>
+                    <span>Kompendium źródłowe • Pogranicze 1362–1409</span>
                   </div>
                   <h2
                     id={titleId}
@@ -285,7 +285,7 @@ export function HistoricalSourcesDrawer({
                         Ramię długie
                       </div>
                       <div className="mt-0.5 font-mono text-sm font-bold text-[#d4a054]">
-                        {TREBUCHET_DIMENSIONS.longArmM} m
+                        {TREBUCHET_DIMENSIONS.longArmM.toFixed(2).replace(".", ",")} m
                       </div>
                     </div>
                     <div>
@@ -293,7 +293,7 @@ export function HistoricalSourcesDrawer({
                         Ramię krótkie
                       </div>
                       <div className="mt-0.5 font-mono text-sm font-bold text-[#d4a054]">
-                        {TREBUCHET_DIMENSIONS.shortArmM} m
+                        {TREBUCHET_DIMENSIONS.shortArmM.toFixed(2).replace(".", ",")} m
                       </div>
                     </div>
                     <div>
@@ -301,7 +301,7 @@ export function HistoricalSourcesDrawer({
                         Przełożenie
                       </div>
                       <div className="mt-0.5 font-mono text-sm font-bold text-[#f7f1e3]">
-                        5.0 : 1
+                        5,0 : 1
                       </div>
                     </div>
                     <div>
@@ -309,7 +309,7 @@ export function HistoricalSourcesDrawer({
                         Wys. osi
                       </div>
                       <div className="mt-0.5 font-mono text-sm font-bold text-[#d4a054]">
-                        {TREBUCHET_DIMENSIONS.axleHeightM} m
+                        {TREBUCHET_DIMENSIONS.axleHeightM.toFixed(1).replace(".", ",")} m
                       </div>
                     </div>
                     <div className="col-span-2 sm:col-span-1">
@@ -499,6 +499,37 @@ export function HistoricalSourcesDrawer({
                     </a>
                   ))}
                 </div>
+              </section>
+
+              {/* SEKCJA 5: LICENCJE I ATRYBUCJE ZASOBÓW */}
+              <section
+                aria-label="Licencje i atrybucje zasobów"
+                className="space-y-2 border-t border-white/10 pt-5 text-[11px] leading-relaxed text-[#9f9584]"
+              >
+                <div className="font-semibold uppercase tracking-[0.14em] text-[#d4a054]">
+                  Licencje i atrybucje zasobów
+                </div>
+                <p>
+                  Kod silnika fizyki RK4, scena 3D PBR i syntezator Web Audio: autorskie oprogramowanie{" "}
+                  <strong className="text-[#dfd3be]">Świadek Dziejów</strong> (RolePlayingTech). Głos i
+                  wizerunek Gospodarza pochodzą z licencjonowanego zestawu produkcyjnego marki.
+                </p>
+                <p>
+                  Kroje pism: <em>Playfair Display</em>, <em>Space Grotesk</em> oraz{" "}
+                  <em>JetBrains Mono</em> — udostępniane na licencji{" "}
+                  <a
+                    href="/wielki-trebusz/fonts/OFL.txt"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline decoration-[#d4a054]/50 underline-offset-2 text-[#e6d7bd] hover:text-[#d4a054]"
+                  >
+                    SIL Open Font License 1.1
+                  </a>
+                  . Ikony UI: <code className="text-[#cfc4b2]">lucide-react</code> (ISC). Biblioteki
+                  silnika: Three.js, React Three Fiber, Next.js (MIT). Teksty źródeł średniowiecznych (
+                  <em>Bellifortis</em> SUB Göttingen Cod. Ms. Philos. 63, wyd. E. Joachima 1896): Domena
+                  Publiczna.
+                </p>
               </section>
             </div>
           </aside>

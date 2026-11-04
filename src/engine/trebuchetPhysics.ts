@@ -37,6 +37,12 @@ export const TREBUCHET_DIMENSIONS = {
   beamMassKg: 1450,
 } as const;
 
+/** Kąt napięcia dębowej belki w pozycji spoczynkowej (kołowrót napięty, t = 0) [rad] */
+export const COCKED_BEAM_ANGLE_RAD = 0.8;
+
+/** Suma kątów (theta + alpha) przy zablokowaniu skrzyni ciesielskimi zastrzałami pod krótkim ramieniem [rad] */
+export const RIGID_LOCK_ANGLE_SUM_RAD = 1.48;
+
 /** Katalog historycznych pocisków oblężniczych z pogranicza XIV/XV w. */
 export const PROJECTILES: Record<ProjectileTypeId, ProjectileSpec> = {
   granit_65: {
@@ -122,24 +128,73 @@ export function getCastleCollisionBoxes(
   castleDistanceM: number,
   targetZone: TargetZoneKind = "kurtyna"
 ): CastleStructureBox[] {
-  // Dopasowujemy położenie głównej kurtyny tak, aby przednie lico aktywnego celu leżało dokładnie w X = castleDistanceM
-  let curtainX = castleDistanceM;
+  // Dopasowujemy położenie głównej kurtyny identycznie z układem 3D w FortressAndCamp.tsx,
+  // tak aby przednie lico aktywnego celu leżało dokładnie w X = castleDistanceM!
   if (targetZone === "gdanisko_wykusz") {
-    curtainX = castleDistanceM + 18.0;
-  } else if (targetZone === "wieza_bramna") {
-    curtainX = castleDistanceM - 6.5;
+    const curtainX = castleDistanceM + 8.5;
+    return [
+      {
+        // Gdanisko (Dansker) — wieża ustępowa zawieszona nad fosą na ceglanej arkadzie (w płaszczyźnie strzału z=0)
+        id: "gdanisko",
+        xMin: castleDistanceM,
+        xMax: castleDistanceM + 4.8,
+        yMin: 4.0,
+        yMax: 12.6,
+        fragilityFactor: 1.35,
+      },
+      {
+        // Kurtyna zamku w głębi za arkadą gdaniska
+        id: "kurtyna",
+        xMin: curtainX,
+        xMax: curtainX + 4.8,
+        yMin: 0,
+        yMax: 12.6,
+        fragilityFactor: 0.95,
+      },
+      {
+        id: "hurdycje",
+        xMin: curtainX,
+        xMax: curtainX + 5.2,
+        yMin: 12.6,
+        yMax: 16.4,
+        fragilityFactor: 1.55,
+      },
+    ];
   }
 
+  if (targetZone === "wieza_bramna") {
+    // Wieża bramna wystaje o 1.4 m PRZED lico kurtyny (zgodnie z geometrią 3D w FortressAndCamp.tsx)
+    const curtainX = castleDistanceM + 1.4;
+    return [
+      {
+        id: "przedmurze",
+        xMin: curtainX - 6.5,
+        xMax: curtainX - 4.0,
+        yMin: 0,
+        yMax: 5.2,
+        fragilityFactor: 0.9,
+      },
+      {
+        id: "wieza_bramna",
+        xMin: castleDistanceM,
+        xMax: castleDistanceM + 8.0,
+        yMin: 0,
+        yMax: 23.5,
+        fragilityFactor: 0.88,
+      },
+      {
+        id: "kurtyna",
+        xMin: curtainX,
+        xMax: curtainX + 4.8,
+        yMin: 0,
+        yMax: 12.6,
+        fragilityFactor: 0.95,
+      },
+    ];
+  }
+
+  const curtainX = castleDistanceM;
   return [
-    {
-      // Gdanisko (Dansker) — wieża ustępowa zawieszona nad fosą na ceglanej arkadzie przed zamkiem
-      id: "gdanisko",
-      xMin: curtainX - 18.0,
-      xMax: curtainX - 13.2,
-      yMin: 4.0,
-      yMax: 12.6,
-      fragilityFactor: 1.35,
-    },
     {
       // Niskie przedmurze (zwinger) nad skarpą fosy
       id: "przedmurze",
@@ -227,14 +282,14 @@ function computeSlipSlingAngleRad(
 
   let hornOffsetDeg: number;
   if (p <= 7) {
-    // 0..7° -> strzał wsteczny do własnego obozu (< -10 m)
-    hornOffsetDeg = -21.0 + (p / 7) * 21.8; // -21.0 .. +0.8
+    // 0..7° -> strzał wsteczny do własnego obozu (< -8 m), ciągłe przejście C^0 w p = 7° (+4.5°)
+    hornOffsetDeg = -21.0 + (p / 7) * 25.5; // -21.0 .. +4.5
   } else if (p <= 13) {
-    // 8..13° -> pionowa świeca nad machiną (-10..+14 m)
-    hornOffsetDeg = 5.2 + ((p - 8) / 5) * 2.6; // +5.2 .. +7.8
+    // 7..13° -> pionowa świeca nad machiną (-8..+14 m), ciągłe przejście bez skoku
+    hornOffsetDeg = 4.5 + ((p - 7) / 6) * 3.5; // +4.5 .. +8.0
   } else if (p < 26) {
     // 13..26° -> przejście z lotu stromego do balistycznego
-    hornOffsetDeg = 7.8 + ((p - 13) / 13) * 51.0; // +7.8 .. +58.8
+    hornOffsetDeg = 8.0 + ((p - 13) / 13) * 50.8; // +8.0 .. +58.8
   } else if (p <= 46) {
     // 26..46° -> optymalne okno inżynieryjne (kąt wyrzutu ok. 46.6° -> 38.8°)
     hornOffsetDeg = 58.8 + ((p - 26) / 20) * 8.4; // +58.8 .. +67.2
@@ -338,23 +393,24 @@ export function simulateTrebuchetShot(
   // Przeciążenie dębowej belki przy ekstremalnej masie, zablokowanej na sztywno skrzyni i lekkim głazie
   const isBeamOverload = M >= 14500 && !hinged && m <= 70;
 
-  // Parametry bezwładnościowe dębowej belki (zwężanej ku czubkowi), skrzyni i konopnej procy
+  // Parametry bezwładnościowe dębowej belki (zwężanej ku czubkowi), skrzyni (I_box = 1/12 * M * (w^2 + h^2) ≈ 0.9 * M) i procy
   const beamCgOffsetM = 0.55;
   const beamInertiaKgM2 = 52_000;
-  const boxSelfInertiaKgM2 = hinged ? 0.9 * M : 6.2 * M;
+  const boxSelfInertiaKgM2 = 0.9 * M;
   const slingInertiaKgM2 = 2.4 * Lp * Lp;
 
   // Pozycja napięta (kołowrót ściąga długie ramię do wys. ~2.17 m nad ziemią po stronie obozu X < 0)
-  const theta0 = 0.8;
+  const theta0 = COCKED_BEAM_ANGLE_RAD;
   const yGroundRel = proj.radiusM - Ha;
 
   // Początkowy kąt procy spoczywającej w poziomym drewnianym korycie startowym pod kozłem
   const cosPhi0 = clamp((-yGroundRel - Ll * Math.cos(theta0)) / Lp, -0.995, 0.995);
   const phi0 = -Math.acos(cosPhi0);
 
-  // Przy zablokowanej skrzyni (hinged === false) ciesielskie zastrzały wiążą zawiesie ze sztywnym kątem
-  // względem belki (theta + alpha = const = lockAngleSumRad), zwiększając bezwładność i skracając spadek ŚM.
-  const lockAngleSumRad = 1.57;
+  // Przy zablokowanej skrzyni (hinged === false) ciesielskie zastrzały wiążą kufer na sztywno
+  // pod brzuchem krótkiego ramienia (theta + alpha = const = RIGID_LOCK_ANGLE_SUM_RAD = 1.48 rad),
+  // co zwiększa moment bezwładności układu, spłyca pionowy spadek ŚM skrzyni i obniża zasięg o ~30%.
+  const lockAngleSumRad = RIGID_LOCK_ANGLE_SUM_RAD;
   const alpha0 = hinged ? 0 : lockAngleSumRad - theta0;
 
   let theta = theta0;
@@ -736,12 +792,10 @@ export function simulateTrebuchetShot(
     releaseAngleDeg = (Math.atan2(projVy, projVx) * 180) / Math.PI;
   }
 
-  // Bilans energetyczny w chwili wyrzutu pocisku
+  // Bilans energetyczny w chwili wyrzutu pocisku (mierzony jednorodnie względem faktycznego spadku ŚM skrzyni Δy_box)
   const kineticEnergyKj = (0.5 * m * releaseSpeedMs * releaseSpeedMs) / 1000;
-  const nominalArmDropM = Ls * (1 + Math.cos(theta0));
   const actualBoxDropM = Math.max(0.5, initialBoxY - minBoxY);
-  const referenceDropM = hinged ? actualBoxDropM : Math.max(actualBoxDropM, nominalArmDropM);
-  const potentialEnergyDropKj = (M * GRAVITY_MS2 * referenceDropM) / 1000;
+  const potentialEnergyDropKj = (M * GRAVITY_MS2 * actualBoxDropM) / 1000;
   const energyEfficiencyPct = clamp((kineticEnergyKj / Math.max(1e-3, potentialEnergyDropKj)) * 100, 0, 95);
 
   // ==================== ETAP 3: LOT BALISTYCZNY Z OPOREM POWIETRZA I KOLIZJAMI ====================
@@ -992,6 +1046,7 @@ export function simulateTrebuchetShot(
     releaseSpeedKmh: Number((releaseSpeedMs * 3.6).toFixed(1)),
     releaseAngleDeg: Number(releaseAngleDeg.toFixed(1)),
     kineticEnergyKj: Number(kineticEnergyKj.toFixed(1)),
+    impactKineticEnergyKj: Number(impactEnergyKj.toFixed(1)),
     potentialEnergyDropKj: Number(potentialEnergyDropKj.toFixed(1)),
     energyEfficiencyPct: Number(energyEfficiencyPct.toFixed(1)),
     maxHeightM: Number(maxHeightM.toFixed(1)),

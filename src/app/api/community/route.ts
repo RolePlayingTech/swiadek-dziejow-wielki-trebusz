@@ -181,7 +181,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     score: submission.score,
     maxDistM: submission.maxDistM,
     gdanisko: submission.gdanisko,
-    percentile,
+    ...(submission.campBackfire ? { backfire: true } : {}),
+    ...(percentile > 0 ? { percentile } : {}),
     ...(submission.callsign ? { callsign: submission.callsign } : {}),
   });
 

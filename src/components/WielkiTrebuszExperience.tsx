@@ -8,6 +8,7 @@ import {
   BookOpen,
   Compass,
   Eye,
+  FastForward,
   Flame,
   Gauge,
   Lock,
@@ -25,6 +26,7 @@ import {
 } from "lucide-react";
 import {
   apiUrl,
+  assetUrl,
   CANONICAL_URL,
   SCORE_CAP,
   type GameModeId,
@@ -74,12 +76,15 @@ interface WielkiTrebuszExperienceProps {
 }
 
 const MAX_ATTEMPTS_PER_SALVO = 2;
+const INITIAL_CAMPAIGN_MASS_KG = 5750;
+const INITIAL_SANDBOX_MASS_KG = 9000;
 
 const SANDBOX_DEFAULT_MISSION: SiegeMission = {
   index: 0,
   id: "sandbox-fortress",
   titlePl: "Warsztat Cieśli: Wolny Poligon Blidy",
-  subtitlePl: "Eksperymentuj z masą, kątem palca, wahliwą skrzynią i wiatrem bez limitu rzutów",
+  subtitlePl:
+    "Eksperymentuj z masą, kątem palca, wahliwą skrzynią i wiatrem bez limitu rzutów",
   historicalContextPl:
     "Swobodna rekonstrukcja inżynieryjna na bazie wymiarów z traktatu Bellifortis Konrada Kyesera (ok. 1405) i kroniki Wiganda z Marburga (Kowno 1362).",
   castleDistanceM: 215,
@@ -98,6 +103,22 @@ function makeRunId(): string {
   return `run_${Date.now().toString(36)}_${rand}${rand2}`;
 }
 
+function pluralizeBlokiPl(count: number): string {
+  const n = Math.max(0, Math.round(count));
+  if (n === 1) return "1 blok skruszony";
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return `${n} bloki skruszone`;
+  }
+  return `${n} bloków skruszonych`;
+}
+
+function formatPlNumber(val: number, decimals = 1): string {
+  const fixed = val.toFixed(decimals);
+  return decimals > 0 ? fixed.replace(/\.0+$/, "").replace(".", ",") : fixed;
+}
+
 function describeOutcomePl(result: ShotSimulationResult): {
   badge: string;
   headline: string;
@@ -113,25 +134,25 @@ function describeOutcomePl(result: ShotSimulationResult): {
     case "direct_target":
       return {
         badge: "CELNE TRAFIENIE",
-        headline: `Wyłom w celu! (${result.bricksDislodged} bloków skruszonych)`,
+        headline: `Wyłom w celu! (${pluralizeBlokiPl(result.bricksDislodged)})`,
         tone: "emerald",
       };
     case "wall_hit":
       return {
         badge: "TRAFIENIE W MUR",
-        headline: `Uderzenie w zamek (${result.distanceErrorM.toFixed(1).replace(".", ",")} m od środka celu)`,
+        headline: `Uderzenie w mur zamku (${result.distanceErrorM.toFixed(1).replace(".", ",")} m od środka celu • ${pluralizeBlokiPl(result.bricksDislodged)})`,
         tone: "gold",
       };
     case "camp_backfire":
       return {
         badge: "SAMOBÓJ W OBÓZ!",
-        headline: `Głaz poleciał ${Math.abs(result.impactDistanceM).toFixed(0)} m DO TYŁU we własne namioty!`,
+        headline: `Głaz poleciał ${Math.abs(result.impactDistanceM).toFixed(0)} m DO TYŁU we własne namioty i kocioł!`,
         tone: "red",
       };
     case "zenith_self_hit":
       return {
         badge: "PIONOWA ŚWIECA!",
-        headline: "Kula wystrzeliła w zenit i runęła tuż przy trebuszu!",
+        headline: "Kula wystrzeliła w zenit i runęła tuż przy kozłach trebusza!",
         tone: "red",
       };
     case "ground_slam":
@@ -162,17 +183,26 @@ function describeOutcomePl(result: ShotSimulationResult): {
 }
 
 function getProngZoneLabel(deg: number): { text: string; colorClass: string } {
-  if (deg <= 8) {
-    return { text: "UWAGA: Wstecz w obóz!", colorClass: "text-[#e05a47]" };
+  if (deg <= 7) {
+    return {
+      text: "UWAGA: Wstecz w obóz!",
+      colorClass: "font-semibold text-[#ff8f7e]",
+    };
   }
-  if (deg <= 15) {
-    return { text: "Pionowa świeca", colorClass: "text-[#e05a47]" };
+  if (deg <= 14) {
+    return {
+      text: "Pionowa świeca nad belką!",
+      colorClass: "font-semibold text-[#ff8f7e]",
+    };
   }
-  if (deg >= 25 && deg <= 47) {
-    return { text: "Złoty kąt balistyczny", colorClass: "text-[#4ecdc4]" };
+  if (deg >= 26 && deg <= 46) {
+    return { text: "Złote okno balistyczne", colorClass: "text-[#4ecdc4]" };
   }
-  if (deg >= 60) {
-    return { text: "Zbyt późny zrzut (w ziemię)", colorClass: "text-[#e05a47]" };
+  if (deg >= 61) {
+    return {
+      text: "Zbyt późny zrzut (w ziemię)",
+      colorClass: "font-semibold text-[#ff8f7e]",
+    };
   }
   return { text: "Pośredni kąt zejścia", colorClass: "text-[#c2b7a6]" };
 }
@@ -188,9 +218,7 @@ export default function WielkiTrebuszExperience({
 
   const [modeId, setModeId] = useState<GameModeId>(initialMode);
   const [seed, setSeed] = useState<number>(initialSeed);
-  const [activeChallenge, setActiveChallenge] = useState<ParsedChallenge | null>(
-    initialChallenge
-  );
+  const [activeChallenge] = useState<ParsedChallenge | null>(initialChallenge);
   const [challengeBannerDismissed, setChallengeBannerDismissed] = useState(false);
 
   // Misje wygenerowane deterministycznie z ziarna
@@ -198,6 +226,10 @@ export default function WielkiTrebuszExperience({
   const [salvoIndex, setSalvoIndex] = useState<number>(0);
   const [attemptInSalvo, setAttemptInSalvo] = useState<number>(0);
   const [salvoBestScores, setSalvoBestScores] = useState<number[]>([0, 0, 0, 0]);
+  const [lastEarnedSalvoPts, setLastEarnedSalvoPts] = useState<{
+    total: number;
+    sniperBonus: number;
+  }>({ total: 0, sniperBonus: 0 });
   const [campaignCompleted, setCampaignCompleted] = useState<boolean>(false);
 
   // Parametry poligonu w trybie Piaskownicy
@@ -218,7 +250,7 @@ export default function WielkiTrebuszExperience({
           sandboxTargetZone === "hurdycje"
             ? 14.4
             : sandboxTargetZone === "wieza_bramna"
-              ? 12.0
+              ? 17.8
               : sandboxTargetZone === "gdanisko_wykusz"
                 ? 8.5
                 : 8.2,
@@ -234,9 +266,13 @@ export default function WielkiTrebuszExperience({
     sandboxWindMs,
   ]);
 
-  // Konfiguracja fizyczna blidy pod palcami gracza
+  // Konfiguracja fizyczna blidy (w Salwie 1 masa 5,75 t trafia prosto w dolny mur na 167 m przy 1. kliknięciu!)
   const [config, setConfig] = useState<TrebuchetConfig>(() => ({
     ...DEFAULT_TREBUCHET_CONFIG,
+    counterweightMassKg:
+      initialMode === "piaskownica"
+        ? INITIAL_SANDBOX_MASS_KG
+        : INITIAL_CAMPAIGN_MASS_KG,
     projectileId:
       initialMode === "piaskownica"
         ? "granit_100"
@@ -245,7 +281,6 @@ export default function WielkiTrebuszExperience({
       initialMode === "piaskownica" ? 0 : campaignMissions[0]?.windSpeedMs ?? 0,
   }));
 
-  // Synchronizacja wiatru z aktualną misją w trybie kampanii / dziennym
   useEffect(() => {
     if (modeId !== "piaskownica") {
       setConfig((prev) => ({
@@ -267,6 +302,7 @@ export default function WielkiTrebuszExperience({
   const [playbackTimeS, setPlaybackTimeS] = useState<number>(0);
   const [isFiring, setIsFiring] = useState<boolean>(false);
   const [shotSettled, setShotSettled] = useState<boolean>(false);
+  const [isFastForward, setIsFastForward] = useState<boolean>(false);
 
   // Narzędzia Inżyniera i kamera
   const [engineerDrawerOpen, setEngineerDrawerOpen] = useState<boolean>(false);
@@ -280,6 +316,8 @@ export default function WielkiTrebuszExperience({
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [subtitle, setSubtitle] = useState<VoiceSubtitlePayload | null>(null);
   const [hasInteracted, setHasInteracted] = useState<boolean>(false);
+  const [verdictPortraitFallback, setVerdictPortraitFallback] =
+    useState<boolean>(false);
 
   // Statystyki sesji do rankingu i kart PNG
   const sessionStartMsRef = useRef<number>(Date.now());
@@ -306,19 +344,27 @@ export default function WielkiTrebuszExperience({
 
   const canvasCaptureRef = useRef<CanvasCaptureFn | null>(null);
   const rafRef = useRef<number | null>(null);
+  const campaignEndTimerRef = useRef<number | null>(null);
+  const fastForwardRef = useRef<boolean>(false);
+  const hasPlayedFirstTouchRef = useRef<boolean>(false);
+  const hasPlayedProngHintRef = useRef<boolean>(false);
 
-  // Subskrypcja stanu Mute i napisów Świadka Dziejów + wstępne pobranie statystyk społeczności
+  const clearCampaignEndTimer = useCallback(() => {
+    if (campaignEndTimerRef.current !== null) {
+      window.clearTimeout(campaignEndTimerRef.current);
+      campaignEndTimerRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     setIsMuted(soundEngine.isMuted());
     const unsubMute = soundEngine.subscribeMute((m) => setIsMuted(m));
     const unsubSub = soundEngine.subscribeSubtitle((sub) => setSubtitle(sub));
 
-    // Powitalny dymek Świadka (napisy pojawiają się od razu, głos po odblokowaniu gestem)
     const introTimer = window.setTimeout(() => {
       soundEngine.triggerVoice("intro");
     }, 450);
 
-    // Pobranie bazowych statystyk społeczności
     fetch(apiUrl("/community"))
       .then((r) => (r.ok ? r.json() : null))
       .then((json: CommunityGetResponse | null) => {
@@ -340,23 +386,29 @@ export default function WielkiTrebuszExperience({
 
     return () => {
       window.clearTimeout(introTimer);
+      clearCampaignEndTimer();
       unsubMute();
       unsubSub();
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
       }
     };
-  }, []);
+  }, [clearCampaignEndTimer]);
 
-  // Duch rywala — symulujemy orientacyjną złotą parabolę na dystans wyzywającego po oddaniu 1. rzutu gracza
+  // Złoty łuk ducha rywala — widoczny od pierwszej sekundy pojedynku (?w=...), by celować świadomie!
   const ghostArcFrames = useMemo(() => {
-    if (!activeChallenge || (attemptInSalvo === 0 && salvoIndex === 0 && !activeResult)) {
+    if (!activeChallenge) {
       return null;
     }
-    const targetX = Math.max(40, Math.min(285, activeChallenge.maxDistM || currentMission.castleDistanceM));
+    const rawDist =
+      activeChallenge.maxDistM !== 0
+        ? activeChallenge.maxDistM
+        : currentMission.castleDistanceM;
+    const targetX = Math.max(-120, Math.min(295, rawDist));
     const pts: { x: number; y: number }[] = [];
     const steps = 42;
-    const peakH = Math.max(28, targetX * 0.28);
+    const span = Math.abs(targetX + 11);
+    const peakH = Math.max(22, span * 0.27);
     for (let i = 0; i <= steps; i++) {
       const u = i / steps;
       const x = -11 + (targetX + 11) * u;
@@ -364,7 +416,7 @@ export default function WielkiTrebuszExperience({
       pts.push({ x, y });
     }
     return pts;
-  }, [activeChallenge, attemptInSalvo, salvoIndex, activeResult, currentMission.castleDistanceM]);
+  }, [activeChallenge, currentMission.castleDistanceM]);
 
   const totalScore = useMemo(
     () =>
@@ -376,7 +428,7 @@ export default function WielkiTrebuszExperience({
   );
 
   const playerRank = useMemo(
-    () => getRankForScore(totalScore, hadCampBackfire && totalScore < 180),
+    () => getRankForScore(totalScore, hadCampBackfire && totalScore < 280),
     [totalScore, hadCampBackfire]
   );
 
@@ -407,6 +459,19 @@ export default function WielkiTrebuszExperience({
     }
   }, [hasInteracted]);
 
+  const maybeTriggerFirstTouchVoice = useCallback(() => {
+    if (
+      !hasPlayedFirstTouchRef.current &&
+      attemptInSalvo === 0 &&
+      salvoIndex === 0 &&
+      !isFiring
+    ) {
+      if (soundEngine.triggerVoice("first_touch")) {
+        hasPlayedFirstTouchRef.current = true;
+      }
+    }
+  }, [attemptInSalvo, salvoIndex, isFiring]);
+
   const handleChangeProngAngle = useCallback(
     (deg: number) => {
       handleFirstInteract();
@@ -414,8 +479,13 @@ export default function WielkiTrebuszExperience({
       setConfig((prev) => {
         if (prev.prongAngleDeg !== clamped) {
           soundEngine.playProngBend(clamped);
-          if (Math.abs(clamped - 35) <= 4 && !hasInteracted) {
-            soundEngine.triggerVoice("prong_adjust");
+          if (
+            !hasPlayedProngHintRef.current &&
+            Math.abs(clamped - DEFAULT_TREBUCHET_CONFIG.prongAngleDeg) >= 3
+          ) {
+            if (soundEngine.triggerVoice("prong_adjust")) {
+              hasPlayedProngHintRef.current = true;
+            }
           }
         }
         return { ...prev, prongAngleDeg: clamped };
@@ -426,7 +496,7 @@ export default function WielkiTrebuszExperience({
         setShotSettled(false);
       }
     },
-    [handleFirstInteract, hasInteracted, isFiring, shotSettled]
+    [handleFirstInteract, isFiring, shotSettled]
   );
 
   const handleChangeCounterweight = useCallback(
@@ -443,13 +513,14 @@ export default function WielkiTrebuszExperience({
         }
         return { ...prev, counterweightMassKg: rounded };
       });
+      maybeTriggerFirstTouchVoice();
       if (!isFiring && shotSettled) {
         setActiveResult(null);
         setPlaybackTimeS(0);
         setShotSettled(false);
       }
     },
-    [handleFirstInteract, isFiring, shotSettled]
+    [handleFirstInteract, maybeTriggerFirstTouchVoice, isFiring, shotSettled]
   );
 
   const handleSelectProjectile = useCallback(
@@ -457,13 +528,34 @@ export default function WielkiTrebuszExperience({
       handleFirstInteract();
       soundEngine.playWinchTick(0.35);
       setConfig((prev) => ({ ...prev, projectileId: projId }));
+      maybeTriggerFirstTouchVoice();
       if (!isFiring && shotSettled) {
         setActiveResult(null);
         setPlaybackTimeS(0);
         setShotSettled(false);
       }
     },
-    [handleFirstInteract, isFiring, shotSettled]
+    [handleFirstInteract, maybeTriggerFirstTouchVoice, isFiring, shotSettled]
+  );
+
+  const handleChangeSlingLength = useCallback(
+    (lengthM: number) => {
+      handleFirstInteract();
+      const clamped = Math.round(Math.max(8.0, Math.min(14.5, lengthM)) * 10) / 10;
+      setConfig((prev) => {
+        if (prev.slingLengthM !== clamped) {
+          soundEngine.playWinchTick((clamped - 8.0) / 6.5);
+        }
+        return { ...prev, slingLengthM: clamped };
+      });
+      maybeTriggerFirstTouchVoice();
+      if (!isFiring && shotSettled) {
+        setActiveResult(null);
+        setPlaybackTimeS(0);
+        setShotSettled(false);
+      }
+    },
+    [handleFirstInteract, maybeTriggerFirstTouchVoice, isFiring, shotSettled]
   );
 
   const handleToggleHinge = useCallback(() => {
@@ -483,6 +575,13 @@ export default function WielkiTrebuszExperience({
       setShotSettled(false);
     }
   }, [handleFirstInteract, isFiring, shotSettled]);
+
+  const handleToggleFastForward = useCallback(() => {
+    const next = !fastForwardRef.current;
+    fastForwardRef.current = next;
+    setIsFastForward(next);
+    soundEngine.playWinchTick(next ? 0.85 : 0.35);
+  }, []);
 
   // Zapis ukończonej kampanii do /api/community
   const submitCompletedCampaign = useCallback(
@@ -537,13 +636,16 @@ export default function WielkiTrebuszExperience({
   const handlePullTrigger = useCallback(() => {
     if (isFiring) return;
     handleFirstInteract();
+    clearCampaignEndTimer();
 
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
 
-    // Jeśli zresetowano kamerę na palec, w chwili strzału pozwalamy zobaczyć lot (chyba że gracz sam wybrał prong_zoom)
+    fastForwardRef.current = false;
+    setIsFastForward(false);
+
     const simResult = simulateTrebuchetShot(config, currentMission);
     setActiveResult(simResult);
     setPlaybackTimeS(0);
@@ -560,18 +662,21 @@ export default function WielkiTrebuszExperience({
 
     // Premia +15 pkt za snajperskie trafienie pierwszym głazem w salwie!
     const rawSalvoPts = simResult.salvoScore;
-    const effectiveSalvoPts =
+    const sniperBonus =
       modeId !== "piaskownica" && nextAttemptNum === 1 && rawSalvoPts >= 195
-        ? Math.min(250, rawSalvoPts + 15)
-        : rawSalvoPts;
+        ? Math.min(15, 250 - rawSalvoPts)
+        : 0;
+    const effectiveSalvoPts = Math.min(250, rawSalvoPts + sniperBonus);
+    setLastEarnedSalvoPts({ total: effectiveSalvoPts, sniperBonus });
 
     let nextMaxDist = maxDistanceM;
-    if (simResult.impactDistanceM > nextMaxDist) {
+    if (simResult.impactDistanceM > nextMaxDist || (nextMaxDist === 0 && simResult.impactDistanceM < 0)) {
       nextMaxDist = simResult.impactDistanceM;
       setMaxDistanceM(nextMaxDist);
     }
-    if (simResult.kineticEnergyKj > maxKineticKj) {
-      setMaxKineticKj(simResult.kineticEnergyKj);
+    const impactEkKj = simResult.impactKineticEnergyKj ?? simResult.kineticEnergyKj;
+    if (impactEkKj > maxKineticKj) {
+      setMaxKineticKj(impactEkKj);
     }
     if (simResult.energyEfficiencyPct > bestEfficiencyPct) {
       setBestEfficiencyPct(simResult.energyEfficiencyPct);
@@ -588,7 +693,7 @@ export default function WielkiTrebuszExperience({
       setHadCampBackfire(true);
     }
 
-    let updatedScores = [...salvoBestScores];
+    const updatedScores = [...salvoBestScores];
     if (modeId !== "piaskownica") {
       updatedScores[salvoIndex] = Math.max(
         updatedScores[salvoIndex] ?? 0,
@@ -603,14 +708,19 @@ export default function WielkiTrebuszExperience({
 
     let releasePlayed = false;
     let impactPlayed = false;
+    let climaxVoiceFired = false;
     const totalAnimDurationS = simResult.impactTimeS + 1.15;
     let simClockS = 0;
     let prevWallMs = performance.now();
 
     const stepFrame = (nowMs: number) => {
-      const dtWall = Math.min(0.06, Math.max(0.001, (nowMs - prevWallMs) / 1000));
+      const dtWall = Math.min(0.12, Math.max(0.001, (nowMs - prevWallMs) / 1000));
       prevWallMs = nowMs;
-      const speedScale = slowMotion ? 0.24 : 1.0;
+      const speedScale = slowMotion
+        ? 0.24
+        : fastForwardRef.current
+          ? 2.5
+          : 1.0;
       simClockS += dtWall * speedScale;
 
       if (!releasePlayed && simClockS >= simResult.releaseTimeS) {
@@ -632,15 +742,16 @@ export default function WielkiTrebuszExperience({
         // Sprawdzenie, czy właśnie pobito wynik rywala z linku wyzwania!
         if (
           activeChallenge &&
+          activeChallenge.score > 0 &&
           !rivalBeatenAnnounced &&
           modeId !== "piaskownica" &&
           projectedTotal > activeChallenge.score
         ) {
+          climaxVoiceFired = true;
           setRivalBeatenAnnounced(true);
           soundEngine.playRivalBeatFanfare();
           soundEngine.triggerVoice("beat_rival", { force: true });
         } else {
-          // Kontekstowa reakcja głosowa Świadka Dziejów
           switch (simResult.outcome) {
             case "camp_backfire":
               soundEngine.triggerVoice("camp_backfire", { force: true });
@@ -653,24 +764,31 @@ export default function WielkiTrebuszExperience({
               soundEngine.triggerVoice("ground_slam", { force: true });
               break;
             case "gdanisko_hit":
+              climaxVoiceFired = true;
               soundEngine.triggerVoice("gdanisko_hit", { force: true });
               break;
             case "direct_target":
               soundEngine.triggerVoice("direct_hit", { force: true });
               break;
             case "wall_hit":
-              if (simResult.distanceErrorM <= 8.5) {
+              if (simResult.distanceErrorM <= 8.0) {
                 soundEngine.triggerVoice("near_miss", { force: true });
               } else {
                 soundEngine.triggerVoice("wall_bounce", { force: true });
               }
               break;
             case "short_moat":
-            case "overshot":
-              if (simResult.distanceErrorM <= 9.0) {
+              if (simResult.distanceErrorM <= 8.0) {
                 soundEngine.triggerVoice("near_miss", { force: true });
               } else {
-                soundEngine.triggerVoice("short_moat");
+                soundEngine.triggerVoice("short_moat", { force: true });
+              }
+              break;
+            case "overshot":
+              if (simResult.distanceErrorM <= 8.0) {
+                soundEngine.triggerVoice("near_miss", { force: true });
+              } else {
+                soundEngine.triggerVoice("overshot", { force: true });
               }
               break;
           }
@@ -684,15 +802,19 @@ export default function WielkiTrebuszExperience({
         setPlaybackTimeS(totalAnimDurationS);
         setIsFiring(false);
         setShotSettled(true);
+        fastForwardRef.current = false;
+        setIsFastForward(false);
         rafRef.current = null;
 
-        // Automatyczne domknięcie kampanii po 2. próbie w ostatniej 4. salwie (lub po idealnym strzale >= 235 pkt w 4. salwie)
+        // Domknięcie kampanii po wyczerpaniu 4. salwy (z dłuższym oddechem po trafieniu w Gdanisko lub pobiciu rywala!)
         if (
           modeId !== "piaskownica" &&
           salvoIndex === campaignMissions.length - 1 &&
-          (nextAttemptNum >= MAX_ATTEMPTS_PER_SALVO || effectiveSalvoPts >= 235)
+          (nextAttemptNum >= MAX_ATTEMPTS_PER_SALVO || effectiveSalvoPts >= 245)
         ) {
-          window.setTimeout(() => {
+          const summaryDelayMs = climaxVoiceFired ? 3600 : 1200;
+          campaignEndTimerRef.current = window.setTimeout(() => {
+            campaignEndTimerRef.current = null;
             setCampaignCompleted(true);
             soundEngine.triggerVoice(
               projectedTotal >= 550 ? "campaign_high" : "campaign_low",
@@ -705,7 +827,7 @@ export default function WielkiTrebuszExperience({
               nextBackfire,
               updatedScores
             );
-          }, 650);
+          }, summaryDelayMs);
         }
       }
     };
@@ -714,6 +836,7 @@ export default function WielkiTrebuszExperience({
   }, [
     isFiring,
     handleFirstInteract,
+    clearCampaignEndTimer,
     config,
     currentMission,
     attemptInSalvo,
@@ -733,7 +856,7 @@ export default function WielkiTrebuszExperience({
     submitCompletedCampaign,
   ]);
 
-  // Obsługa klawisza Spacji do szybkiego strzału na desktopie
+  // Obsługa klawisza Spacji: strzał w spoczynku lub przełączenie przyspieszenia 2,5× w locie
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (sourcesOpen || shareOpen || campaignCompleted) return;
@@ -743,12 +866,23 @@ export default function WielkiTrebuszExperience({
         e.preventDefault();
         if (!isFiring) {
           handlePullTrigger();
+        } else if (playbackTimeS > (activeResult?.releaseTimeS ?? 0.85)) {
+          handleToggleFastForward();
         }
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [sourcesOpen, shareOpen, campaignCompleted, isFiring, handlePullTrigger]);
+  }, [
+    sourcesOpen,
+    shareOpen,
+    campaignCompleted,
+    isFiring,
+    playbackTimeS,
+    activeResult?.releaseTimeS,
+    handlePullTrigger,
+    handleToggleFastForward,
+  ]);
 
   const handleRecockSameSalvo = useCallback(() => {
     if (isFiring) return;
@@ -760,6 +894,7 @@ export default function WielkiTrebuszExperience({
 
   const handleAdvanceSalvo = useCallback(() => {
     if (isFiring) return;
+    clearCampaignEndTimer();
     soundEngine.playWinchTick(0.65);
 
     if (salvoIndex + 1 < campaignMissions.length) {
@@ -791,6 +926,7 @@ export default function WielkiTrebuszExperience({
     }
   }, [
     isFiring,
+    clearCampaignEndTimer,
     salvoIndex,
     campaignMissions,
     totalScore,
@@ -803,10 +939,14 @@ export default function WielkiTrebuszExperience({
 
   const handleSwitchMode = useCallback(
     (nextMode: GameModeId, customSeed?: number) => {
+      clearCampaignEndTimer();
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
+      fastForwardRef.current = false;
+      setIsFastForward(false);
+
       const resolvedSeed =
         customSeed ??
         (nextMode === "dzienny"
@@ -821,6 +961,7 @@ export default function WielkiTrebuszExperience({
       setSalvoIndex(0);
       setAttemptInSalvo(0);
       setSalvoBestScores([0, 0, 0, 0]);
+      setLastEarnedSalvoPts({ total: 0, sniperBonus: 0 });
       setCampaignCompleted(false);
       setActiveResult(null);
       setPlaybackTimeS(0);
@@ -829,23 +970,31 @@ export default function WielkiTrebuszExperience({
       setSignedChallengeToken(null);
       setSignedShareUrl(null);
       setRivalBeatenAnnounced(false);
+      setMaxDistanceM(0);
+      setMaxKineticKj(0);
+      setBestEfficiencyPct(0);
+      setTotalBricksDislodged(0);
+      setHadGdaniskoHit(false);
+      setHadCampBackfire(false);
       sessionStartMsRef.current = Date.now();
       runIdRef.current = makeRunId();
 
       if (nextMode === "piaskownica") {
         setConfig((prev) => ({
           ...prev,
+          counterweightMassKg: INITIAL_SANDBOX_MASS_KG,
           windSpeedMs: sandboxWindMs,
         }));
       } else {
         setConfig((prev) => ({
           ...prev,
+          counterweightMassKg: INITIAL_CAMPAIGN_MASS_KG,
           projectileId: nextMissions[0].recommendedProjectileId,
           windSpeedMs: nextMissions[0].windSpeedMs,
         }));
       }
     },
-    [activeChallenge?.seed, sandboxWindMs, seed]
+    [activeChallenge?.seed, clearCampaignEndTimer, sandboxWindMs, seed]
   );
 
   const handleOpenShare = useCallback(async () => {
@@ -860,14 +1009,15 @@ export default function WielkiTrebuszExperience({
     if (signedShareUrl) return signedShareUrl;
     const effectiveScore =
       modeId === "piaskownica"
-        ? Math.min(SCORE_CAP, (activeResult?.salvoScore ?? 180) * 4)
+        ? Math.min(SCORE_CAP, (activeResult?.salvoScore ?? 0) * 4)
         : totalScore;
     const token = encodeUnsignedChallenge({
       seed,
       modeId,
       score: effectiveScore,
-      maxDistM: Number(Math.max(0, maxDistanceM).toFixed(1)),
+      maxDistM: Number(maxDistanceM.toFixed(1)),
       gdanisko: hadGdaniskoHit,
+      backfire: hadCampBackfire,
     });
     return `${CANONICAL_URL}?w=${encodeURIComponent(token)}`;
   }, [
@@ -878,18 +1028,30 @@ export default function WielkiTrebuszExperience({
     seed,
     maxDistanceM,
     hadGdaniskoHit,
+    hadCampBackfire,
   ]);
 
   const prongZone = getProngZoneLabel(config.prongAngleDeg);
   const outcomeSummary =
     shotSettled && activeResult ? describeOutcomePl(activeResult) : null;
-  const canRetryCurrentSalvo =
-    modeId === "piaskownica" || attemptInSalvo < MAX_ATTEMPTS_PER_SALVO;
+  const currentSalvoBest = salvoBestScores[salvoIndex] ?? 0;
+  const canImproveCurrentSalvo =
+    modeId === "piaskownica" ||
+    (attemptInSalvo < MAX_ATTEMPTS_PER_SALVO && currentSalvoBest < 250);
 
   const effectiveShareScore =
     modeId === "piaskownica"
       ? Math.min(SCORE_CAP, Math.max(totalScore, (activeResult?.salvoScore ?? 0) * 4))
       : totalScore;
+
+  const canFastForwardNow =
+    isFiring && playbackTimeS > (activeResult?.releaseTimeS ?? 0.85);
+
+  const showMeaningfulPercentile =
+    (communityData?.totalRuns ?? 0) >= 5 &&
+    typeof communityData?.percentile === "number" &&
+    communityData.percentile > 0 &&
+    totalScore > 0;
 
   return (
     <main className="relative h-[100dvh] w-full overflow-hidden bg-[#08070a] select-none">
@@ -907,7 +1069,9 @@ export default function WielkiTrebuszExperience({
           ghostFrames={ghostArcFrames}
           ghostLabel={
             activeChallenge
-              ? `Strzał rywala (${activeChallenge.score} pkt)`
+              ? activeChallenge.verified && activeChallenge.score > 0
+                ? `Łuk rywala (${activeChallenge.score} pkt • ${formatPlNumber(activeChallenge.maxDistM)} m)`
+                : `Cel wyzwania (${activeChallenge.seedCode})`
               : null
           }
           onChangeProngAngle={handleChangeProngAngle}
@@ -918,32 +1082,44 @@ export default function WielkiTrebuszExperience({
         />
       </div>
 
-      {/* WARSTWA 1: Górny Pasek Nawigacji i Trybów (44px, zero poziomego overflow na 375px) */}
+      {/* WARSTWA 1: Górny Pasek Nawigacji i Trybów (zero kolizji na 375px!) */}
       <header
-        className="relative z-30 flex items-center justify-between gap-1.5 border-b border-[#d4a054]/20 bg-[#08070a]/82 px-2.5 py-1.5 backdrop-blur-md sm:px-4"
+        className="relative z-30 flex items-center justify-between gap-1.5 border-b border-[#d4a054]/20 bg-[#08070a]/84 px-2 py-1.5 backdrop-blur-md sm:px-4"
         style={{ paddingTop: "max(0.375rem, env(safe-area-inset-top, 0px))" }}
       >
-        <div className="flex min-w-0 items-center gap-1.5 sm:gap-2.5">
+        <div className="flex min-w-0 items-center gap-1 sm:gap-2.5">
           <a
             href="https://swiadek-dziejow.pl"
             title="Wróć do portalu Świadek Dziejów"
-            className="font-mono-brand flex min-h-[36px] shrink-0 items-center gap-1 rounded-lg border border-white/12 bg-[#120e0b]/90 px-2 py-1 text-[11px] font-semibold text-[#d4a054] transition hover:border-[#d4a054]/50 hover:text-[#f0c878] sm:px-2.5"
+            className="font-mono-brand flex min-h-[34px] shrink-0 items-center gap-1 rounded-lg border border-white/12 bg-[#120e0b]/90 px-2 py-1 text-[11px] font-semibold text-[#d4a054] transition hover:border-[#d4a054]/50 hover:text-[#f0c878] sm:min-h-[36px] sm:px-2.5"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
             <span className="sm:hidden">ŚD</span>
             <span className="hidden sm:inline">Świadek Dziejów</span>
           </a>
 
-          {/* Przełącznik trybów gry */}
+          {/* Przełącznik trybów gry — czytelne polskie nazwy na mobile i desktopie */}
           <nav
             aria-label="Tryb rozgrywki"
             className="flex items-center rounded-lg border border-white/10 bg-[#120e0b]/90 p-0.5"
           >
             {(
               [
-                { id: "kampania", labelMobile: "Oblężenie", labelDesktop: "Kampania (4 Salwy)" },
-                { id: "dzienny", labelMobile: "Dnia", labelDesktop: "Rozkaz Dnia" },
-                { id: "piaskownica", labelMobile: "Warsztat", labelDesktop: "Piaskownica" },
+                {
+                  id: "kampania",
+                  labelMobile: "Kampania",
+                  labelDesktop: "Kampania (4 Salwy)",
+                },
+                {
+                  id: "dzienny",
+                  labelMobile: "Rozkaz",
+                  labelDesktop: "Rozkaz Dnia",
+                },
+                {
+                  id: "piaskownica",
+                  labelMobile: "Warsztat",
+                  labelDesktop: "Piaskownica",
+                },
               ] as const
             ).map((tab) => {
               const active = modeId === tab.id;
@@ -959,7 +1135,7 @@ export default function WielkiTrebuszExperience({
                         : undefined
                     )
                   }
-                  className={`min-h-[30px] rounded-md px-2 py-1 text-[11px] font-semibold transition sm:px-2.5 sm:text-xs ${
+                  className={`min-h-[30px] rounded-md px-1.5 py-1 text-[11px] font-semibold transition sm:px-2.5 sm:text-xs ${
                     active
                       ? "bg-[#d4a054] text-[#08070a] shadow-sm"
                       : "text-[#c2b7a6] hover:text-[#f3ede2]"
@@ -973,16 +1149,16 @@ export default function WielkiTrebuszExperience({
           </nav>
         </div>
 
-        {/* Prawa strona paska HUD: Wynik, Źródła, Udostępnij, Dźwięk */}
+        {/* Prawa strona paska HUD (na <640px wynik wyświetlamy w pasku misji, by dać pełen oddech zakładkom!) */}
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           {modeId !== "piaskownica" && (
             <div
-              className="font-mono-brand flex min-h-[36px] items-center gap-1 rounded-lg border border-[#d4a054]/35 bg-[#120e0b]/90 px-2 py-1 text-[11px] sm:px-2.5 sm:text-xs"
+              className="font-mono-brand hidden min-h-[36px] items-center gap-1 rounded-lg border border-[#d4a054]/35 bg-[#120e0b]/90 px-2.5 py-1 text-xs sm:flex"
               title="Aktualny wynik kampanii 4 salw"
             >
               <Award className="h-3.5 w-3.5 text-[#f0c878]" />
               <span className="font-bold text-[#f0c878]">{totalScore}</span>
-              <span className="hidden text-[#9e9383] sm:inline">/1000</span>
+              <span className="text-[#9e9383]">/1000</span>
             </div>
           )}
 
@@ -991,7 +1167,7 @@ export default function WielkiTrebuszExperience({
             onClick={() => setSourcesOpen(true)}
             title="Skąd to wiemy? Fakty źródłowe, równania i mity"
             aria-label="Skąd to wiemy? Źródła i fizyka"
-            className="flex min-h-[36px] items-center gap-1.5 rounded-lg border border-[#4ecdc4]/35 bg-[#4ecdc4]/10 px-2 py-1 text-[11px] font-semibold text-[#7ee8e0] transition hover:bg-[#4ecdc4]/20 sm:px-2.5 sm:text-xs"
+            className="flex min-h-[34px] min-w-[34px] items-center justify-center gap-1.5 rounded-lg border border-[#4ecdc4]/35 bg-[#4ecdc4]/10 px-2 py-1 text-[11px] font-semibold text-[#7ee8e0] transition hover:bg-[#4ecdc4]/20 sm:min-h-[36px] sm:px-2.5 sm:text-xs"
           >
             <BookOpen className="h-3.5 w-3.5" />
             <span className="hidden lg:inline">Skąd to wiemy?</span>
@@ -1002,7 +1178,7 @@ export default function WielkiTrebuszExperience({
             onClick={handleOpenShare}
             title="Generuj kartę wyniku PNG (4:5 / 9:16) i wyzwij znajomych"
             aria-label="Udostępnij wynik i wyzwij znajomych"
-            className="flex min-h-[36px] items-center gap-1.5 rounded-lg border border-[#d4a054]/40 bg-[#d4a054]/14 px-2 py-1 text-[11px] font-semibold text-[#f0c878] transition hover:bg-[#d4a054]/25 sm:px-2.5 sm:text-xs"
+            className="flex min-h-[34px] min-w-[34px] items-center justify-center gap-1.5 rounded-lg border border-[#d4a054]/40 bg-[#d4a054]/14 px-2 py-1 text-[11px] font-semibold text-[#f0c878] transition hover:bg-[#d4a054]/25 sm:min-h-[36px] sm:px-2.5 sm:text-xs"
           >
             <Share2 className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Wyzwij</span>
@@ -1016,7 +1192,7 @@ export default function WielkiTrebuszExperience({
             }}
             title={isMuted ? "Włącz głos Świadka i dźwięki fizyki" : "Wycisz dźwięk"}
             aria-label={isMuted ? "Włącz dźwięk" : "Wycisz dźwięk"}
-            className={`flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border transition ${
+            className={`flex min-h-[34px] min-w-[34px] items-center justify-center rounded-lg border transition sm:min-h-[36px] sm:min-w-[36px] ${
               isMuted
                 ? "border-[#e05a47]/45 bg-[#e05a47]/15 text-[#ff8f7e]"
                 : "border-white/15 bg-[#120e0b]/90 text-[#f0c878] hover:border-[#d4a054]/50"
@@ -1031,7 +1207,7 @@ export default function WielkiTrebuszExperience({
         </div>
       </header>
 
-      {/* Pływający dymek na żywo Świadka Dziejów (pointer-events-none, nie zasłania gestów 3D) */}
+      {/* Pływający dymek na żywo Świadka Dziejów */}
       <SwiadekLiveToast
         subtitle={subtitle}
         isDragging3D={isFiring}
@@ -1042,12 +1218,12 @@ export default function WielkiTrebuszExperience({
         }}
       />
 
-      {/* Kompaktowa pigułka celu aktualnej misji i wiatru (prawy górny róg na desktopie, cienki pasek na mobile) */}
+      {/* Pigułka celu aktualnej misji i wiatru (prawy górny róg na desktopie) + Baner Wyzwania */}
       <div
         className="pointer-events-none fixed right-2.5 z-20 flex flex-col items-end gap-1.5 sm:right-4"
         style={{ top: "calc(env(safe-area-inset-top, 0px) + 54px)" }}
       >
-        <div className=" hidden rounded-xl border border-[#d4a054]/30 bg-[#0c0a08]/82 px-3 py-2 text-right shadow-lg backdrop-blur-md lg:block">
+        <div className="hidden rounded-xl border border-[#d4a054]/30 bg-[#0c0a08]/84 px-3 py-2 text-right shadow-lg backdrop-blur-md lg:block">
           <div className="flex items-center justify-end gap-2">
             <span className="font-mono-brand text-[10px] tracking-[0.16em] text-[#d4a054] uppercase">
               {modeId === "piaskownica"
@@ -1068,7 +1244,7 @@ export default function WielkiTrebuszExperience({
             <span
               className={`flex items-center gap-1 ${
                 currentMission.windSpeedMs < -0.5
-                  ? "text-[#e05a47]"
+                  ? "text-[#ff8f7e]"
                   : currentMission.windSpeedMs > 0.5
                     ? "text-[#4ecdc4]"
                     : "text-[#c2b7a6]"
@@ -1087,127 +1263,112 @@ export default function WielkiTrebuszExperience({
 
         {/* Baner Rękawicy Wyzywającego (gdy wejście z linku ?w=...) */}
         {activeChallenge && !challengeBannerDismissed && (
-          <div className="pointer-events-auto max-w-[330px] rounded-xl border border-[#f0c878]/50 bg-[#16110b]/92 px-3 py-2 shadow-xl backdrop-blur-md">
+          <div className="pointer-events-auto max-w-[340px] rounded-xl border border-[#f0c878]/50 bg-[#16110b]/92 px-3 py-2 shadow-xl backdrop-blur-md">
             <div className="flex items-center justify-between gap-2">
-              <span className="font-mono-brand flex items-center gap-1 text-[10px] font-bold tracking-[0.14em] text-[#f0c878] uppercase">
-                <Swords className="h-3.5 w-3.5" />
-                {activeChallenge.callsign
-                  ? `${activeChallenge.callsign} rzuca rękawicę!`
-                  : "Pojedynek Puszkarzy!"}
+              <span className="font-mono-brand flex items-center gap-1.5 text-[10px] font-bold tracking-[0.14em] text-[#f0c878] uppercase">
+                <Swords className="h-3.5 w-3.5 shrink-0" />
+                <span>
+                  {activeChallenge.verified && activeChallenge.callsign
+                    ? `${activeChallenge.callsign} rzuca rękawicę!`
+                    : `Pojedynek · ${activeChallenge.seedCode}`}
+                </span>
               </span>
               <button
                 type="button"
                 onClick={() => setChallengeBannerDismissed(true)}
-                className="text-[11px] text-[#9e9383] hover:text-[#f3ede2]"
+                className="px-1 text-[11px] text-[#9e9383] hover:text-[#f3ede2]"
                 aria-label="Ukryj pasek pojedynku"
               >
                 ✕
               </button>
             </div>
-            <div className="font-mono-brand mt-1 flex items-center justify-between text-xs">
+            <div className="font-mono-brand mt-1 flex items-center justify-between gap-2 text-xs">
               <span className="text-[#c2b7a6]">
-                Cel do pobicia:{" "}
-                <strong className="text-[#f0c878]">
-                  {activeChallenge.score} pkt
-                </strong>{" "}
-                ({activeChallenge.maxDistM} m)
+                {activeChallenge.score > 0 ? (
+                  <>
+                    Cel:{" "}
+                    <strong className="text-[#f0c878]">
+                      {activeChallenge.score} pkt
+                    </strong>{" "}
+                    ({formatPlNumber(activeChallenge.maxDistM)} m)
+                  </>
+                ) : (
+                  <>Ten sam wiatr i cele ({activeChallenge.seedCode})</>
+                )}
               </span>
-              <span
-                className={`font-bold ${
-                  totalScore > activeChallenge.score
-                    ? "text-[#4ecdc4]"
-                    : "text-[#d4a054]"
-                }`}
-              >
-                {totalScore > activeChallenge.score
-                  ? `+${totalScore - activeChallenge.score} PKT!`
-                  : `${totalScore - activeChallenge.score} pkt`}
-              </span>
+              {activeChallenge.score > 0 && (
+                <span
+                  className={`shrink-0 font-bold ${
+                    totalScore > activeChallenge.score
+                      ? "text-[#4ecdc4]"
+                      : "text-[#d4a054]"
+                  }`}
+                >
+                  {totalScore > activeChallenge.score
+                    ? `+${totalScore - activeChallenge.score} PKT!`
+                    : `${totalScore - activeChallenge.score} pkt`}
+                </span>
+              )}
             </div>
           </div>
         )}
       </div>
 
-      {/* WARSTWA 2: Dolny Pokład Sterowania Kciukiem (Thumb Deck — 100% ergonomii 375x667) */}
+      {/* WARSTWA 2: Dolny Pokład Sterowania Kciukiem (100% ergonomii 375x667, zero ukrytego scrolla!) */}
       <section
         aria-label="Panel sterowania blidą"
-        className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex flex-col items-center px-2 pt-2 sm:px-4"
-        style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom, 0px))" }}
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex flex-col items-center px-2 pt-1.5 sm:px-4"
+        style={{ paddingBottom: "max(0.45rem, env(safe-area-inset-bottom, 0px))" }}
       >
         <div className="pointer-events-auto w-full max-w-3xl space-y-1.5">
-          {/* Karta wyniku ostatniego strzału (pojawia się tuż po uderzeniu pocisku) */}
+          {/* Karta telemetrii ostatniego strzału (czysta informacja zwrotna bez duplikowania przycisków CTA) */}
           {outcomeSummary && activeResult && !campaignCompleted && (
-            <div className="animate-toast flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#d4a054]/40 bg-[#0d0a08]/92 px-3 py-2 shadow-[0_12px_36px_rgba(0,0,0,0.75)] backdrop-blur-md">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span
-                    className={`font-mono-brand rounded px-1.5 py-0.5 text-[9.5px] font-bold tracking-[0.12em] uppercase ${
-                      outcomeSummary.tone === "emerald"
-                        ? "bg-[#4ecdc4]/20 text-[#7ee8e0]"
-                        : outcomeSummary.tone === "gold"
-                          ? "bg-[#d4a054]/25 text-[#f0c878]"
-                          : outcomeSummary.tone === "red"
-                            ? "bg-[#e05a47]/25 text-[#ff9b8c]"
-                            : "bg-white/10 text-[#c2b7a6]"
-                    }`}
-                  >
-                    {outcomeSummary.badge}
-                  </span>
-                  {modeId !== "piaskownica" && (
-                    <span className="font-mono-brand text-xs font-bold text-[#f0c878]">
-                      +{activeResult.salvoScore} pkt
-                    </span>
-                  )}
-                  <span className="font-mono-brand text-[11px] text-[#c2b7a6]">
-                    • Rzut:{" "}
-                    <strong className="text-[#f3ede2]">
-                      {activeResult.impactDistanceM.toFixed(1).replace(".", ",")} m
-                    </strong>{" "}
-                    • {activeResult.releaseSpeedKmh.toFixed(0)} km/h •{" "}
-                    {activeResult.kineticEnergyKj.toFixed(0)} kJ (η{" "}
-                    {activeResult.energyEfficiencyPct.toFixed(0)}%)
-                  </span>
-                </div>
-                <p className="mt-0.5 truncate text-xs font-medium text-[#f3ede2] sm:text-[13px]">
-                  {outcomeSummary.headline}
-                </p>
-              </div>
-
-              <div className="flex shrink-0 items-center gap-1.5">
-                {canRetryCurrentSalvo && (
-                  <button
-                    type="button"
-                    onClick={handleRecockSameSalvo}
-                    className="flex min-h-[36px] items-center gap-1 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-xs font-semibold text-[#f3ede2] transition hover:border-[#d4a054]/50"
-                  >
-                    <RotateCcw className="h-3.5 w-3.5" />
-                    <span>
-                      {modeId === "piaskownica"
-                        ? "Naciągnij"
-                        : `2. kula (${MAX_ATTEMPTS_PER_SALVO - attemptInSalvo})`}
-                    </span>
-                  </button>
-                )}
-
+            <div className="animate-toast rounded-xl border border-[#d4a054]/40 bg-[#0d0a08]/92 px-3 py-1.5 shadow-[0_12px_36px_rgba(0,0,0,0.75)] backdrop-blur-md sm:py-2">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span
+                  className={`font-mono-brand rounded px-1.5 py-0.5 text-[9.5px] font-bold tracking-[0.12em] uppercase ${
+                    outcomeSummary.tone === "emerald"
+                      ? "bg-[#4ecdc4]/20 text-[#7ee8e0]"
+                      : outcomeSummary.tone === "gold"
+                        ? "bg-[#d4a054]/25 text-[#f0c878]"
+                        : outcomeSummary.tone === "red"
+                          ? "bg-[#e05a47]/25 text-[#ff9b8c]"
+                          : "bg-white/10 text-[#c2b7a6]"
+                  }`}
+                >
+                  {outcomeSummary.badge}
+                </span>
                 {modeId !== "piaskownica" && (
-                  <button
-                    type="button"
-                    onClick={handleAdvanceSalvo}
-                    className="flex min-h-[36px] items-center gap-1 rounded-lg bg-[#d4a054] px-3 py-1 text-xs font-bold text-[#08070a] transition hover:bg-[#f0c878]"
-                  >
-                    <span>
-                      {salvoIndex + 1 < campaignMissions.length
-                        ? `Salwa ${salvoIndex + 2}/4`
-                        : "Podsumowanie"}
-                    </span>
-                    <ArrowRight className="h-3.5 w-3.5" />
-                  </button>
+                  <span className="font-mono-brand text-xs font-bold text-[#f0c878]">
+                    +{lastEarnedSalvoPts.total} pkt
+                    {lastEarnedSalvoPts.sniperBonus > 0 ? (
+                      <span className="ml-1 text-[10px] text-[#4ecdc4]">
+                        (+{lastEarnedSalvoPts.sniperBonus} snajper)
+                      </span>
+                    ) : null}
+                  </span>
                 )}
+                <span className="font-mono-brand text-[10.5px] text-[#c2b7a6] sm:text-[11px]">
+                  • Rzut:{" "}
+                  <strong className="text-[#f3ede2]">
+                    {activeResult.impactDistanceM.toFixed(1).replace(".", ",")} m
+                  </strong>{" "}
+                  • {activeResult.releaseSpeedKmh.toFixed(0)} km/h •{" "}
+                  {(
+                    activeResult.impactKineticEnergyKj ??
+                    activeResult.kineticEnergyKj
+                  ).toFixed(0)}{" "}
+                  kJ (<span className="normal-case">η</span>{" "}
+                  {activeResult.energyEfficiencyPct.toFixed(0)}%)
+                </span>
               </div>
+              <p className="mt-0.5 line-clamp-2 text-[11.5px] leading-snug font-medium text-[#f3ede2] sm:text-[13px]">
+                {outcomeSummary.headline}
+              </p>
             </div>
           )}
 
-          {/* Szuflada dodatkowych narzędzi inżyniera (proca, blokada wahliwej skrzyni, slow-mo, wektory, kamera) */}
+          {/* Szuflada dodatkowych narzędzi inżyniera */}
           {engineerDrawerOpen && (
             <div className="animate-toast rounded-xl border border-[#d4a054]/30 bg-[#0d0a08]/92 p-2.5 shadow-xl backdrop-blur-md sm:p-3">
               <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
@@ -1225,13 +1386,9 @@ export default function WielkiTrebuszExperience({
                     step={0.1}
                     value={config.slingLengthM}
                     aria-label="Długość liny procy w metrach"
-                    onChange={(e) => {
-                      handleFirstInteract();
-                      setConfig((prev) => ({
-                        ...prev,
-                        slingLengthM: Number(e.target.value),
-                      }));
-                    }}
+                    onChange={(e) =>
+                      handleChangeSlingLength(Number(e.target.value))
+                    }
                     className="brass-slider mt-1 w-full"
                   />
                 </div>
@@ -1245,7 +1402,7 @@ export default function WielkiTrebuszExperience({
                     <div className="text-[10px] text-[#9e9383]">
                       {config.hingedCounterweight
                         ? "Wahliwe (historyczna blida — max η)"
-                        : "Zablokowane sztywno (~30% straty!)"}
+                        : "Zablokowane zastrzałem (~30% straty!)"}
                     </div>
                   </div>
                   <button
@@ -1297,7 +1454,10 @@ export default function WielkiTrebuszExperience({
                     <div className="flex justify-between text-[11px]">
                       <span className="text-[#c2b7a6]">Wiatr znad rzeki</span>
                       <span className="font-mono-brand text-[#f0c878]">
-                        {sandboxWindMs > 0 ? `+${sandboxWindMs}` : sandboxWindMs} m/s
+                        {sandboxWindMs > 0
+                          ? `+${formatPlNumber(sandboxWindMs)}`
+                          : formatPlNumber(sandboxWindMs)}{" "}
+                        m/s
                       </span>
                     </div>
                     <input
@@ -1352,7 +1512,7 @@ export default function WielkiTrebuszExperience({
                         : "border-white/12 bg-white/5 text-[#c2b7a6]"
                     }`}
                   >
-                    ⏱ Slow-Mo 0.2× {slowMotion ? "ON" : "OFF"}
+                    Slow-Mo 0,24× {slowMotion ? "ON" : "OFF"}
                   </button>
                   <button
                     type="button"
@@ -1363,7 +1523,7 @@ export default function WielkiTrebuszExperience({
                         : "border-white/12 bg-white/5 text-[#c2b7a6]"
                     }`}
                   >
-                    ↗ Wektory sił {showVectors ? "ON" : "OFF"}
+                    Wektory sił {showVectors ? "ON" : "OFF"}
                   </button>
                 </div>
 
@@ -1394,10 +1554,10 @@ export default function WielkiTrebuszExperience({
             </div>
           )}
 
-          {/* Główna konsola kciuka (zawsze widoczna, zwięzła, 0 scrolla) */}
-          <div className="archival-frame rounded-2xl bg-[#0c0a08]/88 px-2.5 py-2 backdrop-blur-md sm:px-4 sm:py-2.5">
-            {/* Kompaktowy pasek misji na mobile (< lg) */}
-            <div className="mb-1.5 flex items-center justify-between gap-2 border-b border-white/8 pb-1 text-[11px] lg:hidden">
+          {/* Główna konsola kciuka (4 pociski zawsze widoczne jednocześnie na 375px, 0 poziomego scrolla!) */}
+          <div className="archival-frame rounded-2xl bg-[#0c0a08]/90 px-2.5 py-2 backdrop-blur-md sm:px-4 sm:py-2.5">
+            {/* Kompaktowy pasek misji na mobile (< lg) z wektorowymi ikonami i wynikiem */}
+            <div className="mb-1.5 flex items-center justify-between gap-1.5 border-b border-white/8 pb-1 text-[10.5px] lg:hidden">
               <div className="flex min-w-0 items-center gap-1.5">
                 <span className="font-mono-brand shrink-0 font-bold text-[#d4a054]">
                   {modeId === "piaskownica"
@@ -1408,29 +1568,36 @@ export default function WielkiTrebuszExperience({
                   {currentMission.titlePl.replace(/^Salwa [IV]+:\s*/, "")}
                 </span>
               </div>
-              <div className="font-mono-brand flex shrink-0 items-center gap-2 text-[10.5px]">
-                <span className="text-[#f0c878]">
-                  🎯 {currentMission.castleDistanceM}m
+              <div className="font-mono-brand flex shrink-0 items-center gap-2 text-[10px]">
+                <span className="flex items-center gap-0.5 text-[#f0c878]">
+                  <Target className="h-3 w-3" />
+                  {currentMission.castleDistanceM} m
                 </span>
                 <span
-                  className={
+                  className={`flex items-center gap-0.5 ${
                     currentMission.windSpeedMs < -0.5
-                      ? "text-[#e05a47]"
+                      ? "text-[#ff8f7e]"
                       : currentMission.windSpeedMs > 0.5
                         ? "text-[#4ecdc4]"
                         : "text-[#9e9383]"
-                  }
+                  }`}
                 >
-                  💨{" "}
+                  <Wind className="h-3 w-3" />
                   {currentMission.windSpeedMs > 0
-                    ? `+${currentMission.windSpeedMs}`
-                    : currentMission.windSpeedMs}
+                    ? `+${formatPlNumber(currentMission.windSpeedMs)}`
+                    : formatPlNumber(currentMission.windSpeedMs)}{" "}
                   m/s
                 </span>
+                {modeId !== "piaskownica" && (
+                  <span className="flex items-center gap-0.5 font-bold text-[#f0c878] sm:hidden">
+                    <Award className="h-3 w-3" />
+                    {totalScore}
+                  </span>
+                )}
               </div>
             </div>
 
-            {/* 2 główne suwaki fizyczne (zsynchronizowane z uchwytami 3D!) */}
+            {/* 2 główne suwaki fizyczne (zsynchronizowane 1:1 z uchwytami 3D!) */}
             <div className="grid grid-cols-2 gap-2.5 sm:gap-4">
               {/* Suwak 1: Kąt żelaznego palca spustowego */}
               <div>
@@ -1474,7 +1641,7 @@ export default function WielkiTrebuszExperience({
                     {(config.counterweightMassKg / 1000)
                       .toFixed(2)
                       .replace(/\.00$/, "")
-                      .replace(/0$/, "")
+                      .replace(/(\.\d)0$/, "$1")
                       .replace(".", ",")}{" "}
                     t
                   </span>
@@ -1493,20 +1660,23 @@ export default function WielkiTrebuszExperience({
                   className="brass-slider mt-1 w-full"
                 />
                 <div className="truncate text-[9.5px] text-[#9e9383]">
-                  {PROJECTILES[config.projectileId].shortNamePl} • przełożenie 5:1
+                  {PROJECTILES[config.projectileId].shortNamePl} • przełożenie 5,0:1
                 </div>
               </div>
             </div>
 
-            {/* Dolny rząd: wybór amunicji + przycisk Inżyniera + GŁÓWNY SPUST BLIDY */}
-            <div className="mt-2 flex items-center justify-between gap-1.5 sm:gap-2">
+            {/* Rząd wyboru amunicji + akcje główne (4 pociski zawsze w pełnej widoczności!) */}
+            <div className="mt-1.5 flex flex-col gap-1.5 sm:mt-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
               <div
-                className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+                className="grid grid-cols-4 gap-1 sm:flex sm:items-center sm:gap-1.5"
                 role="radiogroup"
                 aria-label="Wybór pocisku"
               >
                 {PROJECTILE_LIST.map((p) => {
                   const selected = config.projectileId === p.id;
+                  const compactLabel = p.shortNamePl
+                    .replace("Głaz ", "")
+                    .replace("Kula ", "");
                   return (
                     <button
                       key={p.id}
@@ -1516,79 +1686,131 @@ export default function WielkiTrebuszExperience({
                       disabled={isFiring}
                       onClick={() => handleSelectProjectile(p.id)}
                       title={p.descriptionPl}
-                      className={`min-h-[34px] shrink-0 rounded-lg border px-2 py-1 text-[10.5px] font-semibold transition sm:px-2.5 sm:text-xs ${
+                      className={`flex min-h-[32px] items-center justify-center gap-1 rounded-lg border px-1.5 py-1 text-[10.5px] font-semibold transition sm:min-h-[36px] sm:px-2.5 sm:text-xs ${
                         selected
                           ? "border-[#f0c878] bg-[#d4a054]/22 text-[#f0c878]"
                           : "border-white/10 bg-[#161310] text-[#c2b7a6] hover:text-[#f3ede2]"
                       }`}
                     >
-                      {p.isIncendiary ? "🔥 " : "🪨 "}
-                      {p.shortNamePl.replace("Głaz ", "").replace("Kula ", "")}
+                      {p.isIncendiary ? (
+                        <Flame className="h-3 w-3 shrink-0 text-[#ff8f7e]" />
+                      ) : (
+                        <span
+                          className="h-2 w-2 shrink-0 rounded-full bg-[#c2b7a6]"
+                          aria-hidden="true"
+                        />
+                      )}
+                      <span className="truncate">{compactLabel}</span>
                     </button>
                   );
                 })}
               </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  handleFirstInteract();
-                  setEngineerDrawerOpen((v) => !v);
-                }}
-                title="Więcej parametrów inżynieryjnych (proca, blokada skrzyni, slow-mo, wektory)"
-                aria-expanded={engineerDrawerOpen}
-                className={`flex min-h-[38px] shrink-0 items-center gap-1 rounded-xl border px-2.5 py-1.5 text-xs font-semibold transition ${
-                  engineerDrawerOpen || !config.hingedCounterweight || slowMotion || showVectors
-                    ? "border-[#4ecdc4]/55 bg-[#4ecdc4]/15 text-[#7ee8e0]"
-                    : "border-white/14 bg-[#161310] text-[#c2b7a6] hover:text-[#f3ede2]"
-                }`}
-              >
-                <Sliders className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Inżynier</span>
-              </button>
-
-              {/* GŁÓWNY PRZYCISK AKCJI (Strzał / Kolejna salwa) */}
-              {shotSettled &&
-              modeId !== "piaskownica" &&
-              !canRetryCurrentSalvo ? (
+              {/* Prawa sekcja przycisków: Inżynier + pojedyncza czytelna ścieżka CTA */}
+              <div className="flex items-center justify-end gap-1.5">
                 <button
                   type="button"
-                  onClick={handleAdvanceSalvo}
-                  className="pulse-brass-cta flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-full bg-[#d4a054] px-4 py-2 text-xs font-extrabold tracking-[0.06em] text-[#08070a] uppercase transition hover:bg-[#f0c878] sm:px-5 sm:text-sm"
-                >
-                  <span>
-                    {salvoIndex + 1 < campaignMissions.length
-                      ? "Następna salwa"
-                      : "Werdykt"}
-                  </span>
-                  <ArrowRight className="h-4 w-4" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={isFiring}
-                  onClick={handlePullTrigger}
-                  className={`flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-full px-4 py-2 text-xs font-extrabold tracking-[0.06em] uppercase transition sm:px-5 sm:text-sm ${
-                    isFiring
-                      ? "cursor-wait bg-[#d4a054]/40 text-[#f3ede2]/70"
-                      : !hasInteracted
-                        ? "pulse-brass-cta bg-[#d4a054] text-[#08070a] hover:bg-[#f0c878]"
-                        : "bg-[#d4a054] text-[#08070a] shadow-[0_8px_28px_rgba(212,160,84,0.34)] hover:bg-[#f0c878]"
+                  onClick={() => {
+                    handleFirstInteract();
+                    setEngineerDrawerOpen((v) => !v);
+                  }}
+                  title="Więcej parametrów inżynieryjnych (proca, blokada skrzyni, slow-mo, wektory)"
+                  aria-expanded={engineerDrawerOpen}
+                  className={`flex min-h-[38px] shrink-0 items-center gap-1 rounded-xl border px-2.5 py-1.5 text-xs font-semibold transition ${
+                    engineerDrawerOpen ||
+                    !config.hingedCounterweight ||
+                    slowMotion ||
+                    showVectors
+                      ? "border-[#4ecdc4]/55 bg-[#4ecdc4]/15 text-[#7ee8e0]"
+                      : "border-white/14 bg-[#161310] text-[#c2b7a6] hover:text-[#f3ede2]"
                   }`}
                 >
-                  {isFiring ? (
-                    <>
-                      <Gauge className="h-4 w-4 animate-spin" />
-                      <span>W locie…</span>
-                    </>
-                  ) : (
-                    <>
-                      <Flame className="h-4 w-4" />
-                      <span>Zwolnij spust!</span>
-                    </>
-                  )}
+                  <Sliders className="h-3.5 w-3.5" />
+                  <span>Inżynier</span>
                 </button>
-              )}
+
+                {/* Gdy strzał osiadł w Kampanii/Rozkazie Dnia: 1 jasny złoty przycisk dalej + opcjonalna 2. kula */}
+                {shotSettled && modeId !== "piaskownica" ? (
+                  <>
+                    {canImproveCurrentSalvo && (
+                      <button
+                        type="button"
+                        onClick={handleRecockSameSalvo}
+                        className="flex min-h-[38px] shrink-0 items-center gap-1 rounded-xl border border-white/18 bg-[#161310] px-2.5 py-1.5 text-xs font-semibold text-[#f3ede2] transition hover:border-[#f0c878]"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5 text-[#f0c878]" />
+                        <span>2. kula</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleAdvanceSalvo}
+                      className="pulse-brass-cta flex min-h-[38px] flex-1 items-center justify-center gap-1.5 rounded-full bg-[#d4a054] px-4 py-1.5 text-xs font-extrabold tracking-[0.05em] text-[#08070a] uppercase transition hover:bg-[#f0c878] sm:flex-initial sm:px-5 sm:text-sm"
+                    >
+                      <span>
+                        {salvoIndex + 1 < campaignMissions.length
+                          ? `Salwa ${salvoIndex + 2}/4`
+                          : "Werdykt"}
+                      </span>
+                      <ArrowRight className="h-4 w-4" />
+                    </button>
+                  </>
+                ) : isFiring ? (
+                  canFastForwardNow ? (
+                    <button
+                      type="button"
+                      onClick={handleToggleFastForward}
+                      className={`flex min-h-[38px] flex-1 items-center justify-center gap-1.5 rounded-full border px-4 py-1.5 text-xs font-extrabold tracking-[0.05em] uppercase transition sm:flex-initial sm:px-5 sm:text-sm ${
+                        isFastForward
+                          ? "border-[#f0c878] bg-[#d4a054] text-[#08070a]"
+                          : "border-[#f0c878]/60 bg-[#1b140d] text-[#f0c878] hover:bg-[#d4a054]/25"
+                      }`}
+                    >
+                      <FastForward className="h-4 w-4" />
+                      <span>{isFastForward ? "2,5× aktywne" : "Przyspiesz 2,5×"}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled
+                      className="flex min-h-[38px] flex-1 cursor-wait items-center justify-center gap-1.5 rounded-full bg-[#d4a054]/40 px-4 py-1.5 text-xs font-extrabold tracking-[0.05em] text-[#f3ede2]/80 uppercase sm:flex-initial sm:px-5 sm:text-sm"
+                    >
+                      <Gauge className="h-4 w-4 animate-spin" />
+                      <span>Rozpęd belki…</span>
+                    </button>
+                  )
+                ) : (
+                  <>
+                    {shotSettled && modeId === "piaskownica" && (
+                      <button
+                        type="button"
+                        onClick={handleRecockSameSalvo}
+                        title="Przywróć belkę do pozycji spoczynkowej"
+                        className="flex min-h-[38px] shrink-0 items-center gap-1 rounded-xl border border-white/15 bg-[#161310] px-2.5 py-1.5 text-xs font-semibold text-[#c2b7a6] transition hover:text-[#f3ede2]"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        <span className="hidden sm:inline">Naciągnij</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handlePullTrigger}
+                      className={`flex min-h-[38px] flex-1 items-center justify-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-extrabold tracking-[0.05em] uppercase transition sm:flex-initial sm:px-5 sm:text-sm ${
+                        !hasInteracted
+                          ? "pulse-brass-cta bg-[#d4a054] text-[#08070a] hover:bg-[#f0c878]"
+                          : "bg-[#d4a054] text-[#08070a] shadow-[0_8px_28px_rgba(212,160,84,0.34)] hover:bg-[#f0c878]"
+                      }`}
+                    >
+                      <Flame className="h-4 w-4" />
+                      <span>
+                        {modeId !== "piaskownica" && attemptInSalvo === 1
+                          ? "Zwolnij spust (2/2)!"
+                          : "Zwolnij spust!"}
+                      </span>
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1603,19 +1825,20 @@ export default function WielkiTrebuszExperience({
           aria-label="Podsumowanie kampanii oblężniczej"
         >
           <div className="archival-frame animate-toast my-auto w-full max-w-xl rounded-2xl bg-[#110d0a] p-4 sm:p-6">
-            <div className="flex items-center justify-between gap-2 border-b border-[#d4a054]/25 pb-3">
-              <span className="font-mono-brand text-[10.5px] font-bold tracking-[0.18em] text-[#d4a054] uppercase">
-                Werdykt Oblężniczy • Scenariusz {formatSeedCode(seed)}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#d4a054]/25 pb-3">
+              <span className="font-mono-brand text-[10.5px] font-bold tracking-[0.16em] text-[#d4a054] uppercase">
+                Werdykt Oblężniczy • Scenariusz{" "}
+                <span className="whitespace-nowrap">{formatSeedCode(seed)}</span>
               </span>
-              {communityData?.percentile ? (
+              {showMeaningfulPercentile ? (
                 <span className="font-mono-brand rounded-full border border-[#4ecdc4]/40 bg-[#4ecdc4]/12 px-2.5 py-0.5 text-[11px] font-bold text-[#7ee8e0]">
-                  Lepszy wynik niż u {communityData.percentile}% graczy
+                  Lepszy wynik niż u {communityData?.percentile}% graczy
                 </span>
               ) : null}
             </div>
 
             <div className="mt-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
+              <div className="min-w-0">
                 <div className="text-xs text-[#c2b7a6]">Przyznana ranga</div>
                 <h2 className="font-serif-brand mt-0.5 text-2xl font-extrabold text-[#f3ede2] sm:text-3xl">
                   {playerRank.badgeIcon} {playerRank.titlePl}
@@ -1624,11 +1847,11 @@ export default function WielkiTrebuszExperience({
                   {playerRank.epigraphPl}
                 </p>
               </div>
-              <div className="rounded-xl border border-[#d4a054]/40 bg-[#08070a] px-4 py-2.5 text-left sm:text-right">
+              <div className="shrink-0 rounded-xl border border-[#d4a054]/40 bg-[#08070a] px-4 py-2.5 text-left sm:text-right">
                 <div className="font-mono-brand text-[10px] tracking-[0.14em] text-[#9e9383] uppercase">
                   Wynik 4 salw
                 </div>
-                <div className="font-serif-brand text-3xl font-extrabold text-[#f0c878]">
+                <div className="font-serif-brand whitespace-nowrap text-3xl font-extrabold text-[#f0c878]">
                   {totalScore}{" "}
                   <span className="text-base font-normal text-[#9e9383]">
                     / 1000
@@ -1638,17 +1861,21 @@ export default function WielkiTrebuszExperience({
             </div>
 
             {/* Porównanie pojedynku, jeśli grano z linku wyzwania znajomego */}
-            {activeChallenge && (
+            {activeChallenge && activeChallenge.score > 0 && (
               <div className="mt-3.5 rounded-xl border border-[#f0c878]/35 bg-[#1b140d] px-3.5 py-2.5">
-                <div className="flex items-center justify-between text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
                   <span className="font-semibold text-[#f0c878]">
-                    ⚔️ Pojedynek w scenariuszu {activeChallenge.seedCode}:
+                    Pojedynek w scenariuszu{" "}
+                    <span className="whitespace-nowrap">
+                      {activeChallenge.seedCode}
+                    </span>
+                    :
                   </span>
                   <span
                     className={`font-mono-brand font-bold ${
                       totalScore >= activeChallenge.score
                         ? "text-[#4ecdc4]"
-                        : "text-[#e05a47]"
+                        : "text-[#ff8f7e]"
                     }`}
                   >
                     {totalScore > activeChallenge.score
@@ -1680,7 +1907,7 @@ export default function WielkiTrebuszExperience({
               </div>
               <div className="rounded-xl border border-white/10 bg-[#08070a]/80 p-2.5 text-center">
                 <div className="font-mono-brand text-[9.5px] text-[#9e9383] uppercase">
-                  Max energia
+                  Energia uderzenia
                 </div>
                 <div className="font-mono-brand mt-0.5 text-base font-bold text-[#f0c878] sm:text-lg">
                   {maxKineticKj.toFixed(0)} kJ
@@ -1688,7 +1915,7 @@ export default function WielkiTrebuszExperience({
               </div>
               <div className="rounded-xl border border-white/10 bg-[#08070a]/80 p-2.5 text-center">
                 <div className="font-mono-brand text-[9.5px] text-[#9e9383] uppercase">
-                  Sprawność η
+                  Sprawność <span className="normal-case">η</span>
                 </div>
                 <div className="font-mono-brand mt-0.5 text-base font-bold text-[#4ecdc4] sm:text-lg">
                   {bestEfficiencyPct.toFixed(1).replace(".", ",")}%
@@ -1701,17 +1928,17 @@ export default function WielkiTrebuszExperience({
               <div className="mt-3 flex flex-wrap gap-1.5">
                 {hadGdaniskoHit && (
                   <span className="font-mono-brand rounded-full border border-[#f0c878]/45 bg-[#d4a054]/18 px-2.5 py-0.5 text-[10.5px] font-bold text-[#f0c878]">
-                    🎯 Odznaka: Pogromca Gdaniska
+                    ✦ Odznaka: Pogromca Gdaniska
                   </span>
                 )}
                 {testedLockedHinge && (
                   <span className="font-mono-brand rounded-full border border-[#4ecdc4]/45 bg-[#4ecdc4]/14 px-2.5 py-0.5 text-[10.5px] font-bold text-[#7ee8e0]">
-                    🔬 Eksperymentator Wahadła Lagrange’a
+                    ◆ Eksperymentator Wahadła Lagrange’a
                   </span>
                 )}
                 {hadCampBackfire && (
                   <span className="font-mono-brand rounded-full border border-[#e05a47]/45 bg-[#e05a47]/15 px-2.5 py-0.5 text-[10.5px] font-bold text-[#ff9b8c]">
-                    💀 Zbombardowano własny obóz!
+                    ▲ Zbombardowano własny obóz!
                   </span>
                 )}
               </div>
@@ -1719,9 +1946,15 @@ export default function WielkiTrebuszExperience({
 
             {/* Komentarz Świadka Dziejów */}
             <div className="mt-4 flex items-center gap-3 rounded-xl border border-[#d4a054]/25 bg-[#08070a]/75 p-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/wielki-trebusz/swiadek-portrait.jpg"
+                src={
+                  verdictPortraitFallback
+                    ? assetUrl("/swiadek-ref.jpg")
+                    : assetUrl("/swiadek-portrait.jpg")
+                }
                 alt="Świadek Dziejów"
+                onError={() => setVerdictPortraitFallback(true)}
                 className="h-12 w-12 shrink-0 rounded-full border border-[#d4a054]/60 object-cover object-top"
               />
               <p className="font-serif-brand text-xs leading-relaxed text-[#f3ede2] italic sm:text-sm">
@@ -1759,11 +1992,11 @@ export default function WielkiTrebuszExperience({
               </button>
             </div>
 
-            <div className="mt-3 flex items-center justify-between border-t border-white/8 pt-2.5 text-[11px] text-[#9e9383]">
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-white/8 pt-2.5 text-[11px] text-[#9e9383]">
               <button
                 type="button"
                 onClick={() => setSourcesOpen(true)}
-                className="text-[#4ecdc4] underline-offset-2 hover:underline"
+                className="text-left text-[#4ecdc4] underline-offset-2 hover:underline"
               >
                 Skąd to wiemy? Źródła (Kowno 1362, Bellifortis 1405) i mity 1410 →
               </button>
@@ -1791,7 +2024,10 @@ export default function WielkiTrebuszExperience({
           isOpen={shareOpen}
           onClose={() => setShareOpen(false)}
           score={effectiveShareScore}
-          rank={getRankForScore(effectiveShareScore, hadCampBackfire && effectiveShareScore < 180)}
+          rank={getRankForScore(
+            effectiveShareScore,
+            hadCampBackfire && effectiveShareScore < 280
+          )}
           seed={seed}
           modeId={modeId}
           maxDistanceM={maxDistanceM}
@@ -1805,6 +2041,14 @@ export default function WielkiTrebuszExperience({
           community={communityData}
           challengeToken={signedChallengeToken}
           shareUrl={fallbackShareUrl}
+          runId={runIdRef.current}
+          salvoScores={salvoBestScores}
+          durationMs={Date.now() - sessionStartMsRef.current}
+          campaignCompleted={campaignCompleted}
+          onChallengeSigned={(tok, url) => {
+            setSignedChallengeToken(tok);
+            setSignedShareUrl(url);
+          }}
         />
       )}
     </main>

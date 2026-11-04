@@ -372,30 +372,44 @@ function SiegeCameraRig({
   userOrbitedRef: React.MutableRefObject<boolean>;
 }) {
   const { camera, size } = useThree();
-  const desiredPos = useRef(new THREE.Vector3(-34, 9.6, 16));
-  const desiredTarget = useRef(new THREE.Vector3(18, 8.0, -1.4));
+  const desiredPos = useRef(new THREE.Vector3(-58, 15.2, 42));
+  const desiredTarget = useRef(new THREE.Vector3(18, 11.2, -1.2));
+
+  const hasSettledImpact =
+    Boolean(activeResult) &&
+    !isFiring &&
+    playbackTimeS >= (activeResult?.impactTimeS ?? Infinity);
 
   // Resetujemy flagę ręcznego obrotu przy zmianie trybu kamery, misji lub starcie strzału
   useEffect(() => {
     userOrbitedRef.current = false;
   }, [cameraMode, mission.id, isFiring, userOrbitedRef]);
 
-  // Przesunięcie osi optycznej (tilt-shift viewOffset) na wąskich ekranach mobilnych (width < 640),
-  // aby środek ciężkości blidy znajdował się w górnych 55% ekranu ponad dolnym panelem kciuka!
+  // Przesunięcie osi optycznej (tilt-shift viewOffset), aby środek ciężkości sceny
+  // mieścił się czysto w oknie między górnym paskiem a dolnym pulpitem sterowania!
   useEffect(() => {
     if (!(camera instanceof THREE.PerspectiveCamera)) return;
 
     const isMobileNarrow = size.width < 640;
-    const isIdleTrebuchetView =
+    const isShortMobile = isMobileNarrow && size.height < 720;
+    const useHudOffset =
       !isFiring && (cameraMode === "auto" || cameraMode === "trebuchet");
 
-    if (isMobileNarrow && isIdleTrebuchetView) {
-      const yOffset = Math.round(size.height * 0.135);
+    if (useHudOffset) {
+      const yFrac = isShortMobile ? 0.215 : isMobileNarrow ? 0.205 : 0.11;
+      const yOffset = Math.round(size.height * yFrac);
       camera.setViewOffset(size.width, size.height, 0, yOffset, size.width, size.height);
     } else {
       camera.clearViewOffset();
     }
-    camera.fov = cameraMode === "overview" ? 32 : 26;
+
+    if (cameraMode === "overview") {
+      camera.fov = isMobileNarrow ? 36 : 33;
+    } else if (cameraMode === "prong_zoom") {
+      camera.fov = 26;
+    } else {
+      camera.fov = isMobileNarrow ? 36 : 32;
+    }
     camera.updateProjectionMatrix();
 
     return () => {
@@ -423,22 +437,22 @@ function SiegeCameraRig({
       // Makro-zbliżenie na żelazny palec spustowy na czubku belki i ześlizgujący się pierścień
       desiredTarget.current.set(pose.tipX + 0.35, pose.tipY - 0.05, 0);
       desiredPos.current.set(
-        pose.tipX - 1.15,
-        pose.tipY + 0.52,
-        isMobile ? 5.6 : 4.35
+        pose.tipX - 1.25,
+        pose.tipY + 0.55,
+        isMobile ? 6.0 : 4.65
       );
     } else if (cameraMode === "overview") {
       // Szeroka panorama pola bitwy od obozu (-32 m) po zamek krzyżacki (+castleDistanceM)
       const midX = mission.castleDistanceM * 0.42;
-      const span = mission.castleDistanceM + 65;
-      const distZ = isMobile ? span * 1.42 : span * 0.78;
+      const span = mission.castleDistanceM + 70;
+      const distZ = isMobile ? span * 1.38 : span * 0.78;
       desiredTarget.current.set(midX, 11.5, 0);
       desiredPos.current.set(midX - 12, 28, distZ);
     } else if (
       cameraMode === "follow" ||
-      (cameraMode === "auto" && isFiring)
+      (cameraMode === "auto" && (isFiring || hasSettledImpact))
     ) {
-      if (!isFiring || !activeResult) {
+      if ((!isFiring && !hasSettledImpact) || !activeResult) {
         // Skupienie na koszu procy w korycie startowym
         desiredTarget.current.set(pose.projX + 4, pose.projY + 2.5, 0);
         desiredPos.current.set(pose.projX - 18, 6.2, isMobile ? 12 : 14);
@@ -453,15 +467,15 @@ function SiegeCameraRig({
             Math.max(5.5, pose.tipY * 0.5 + pose.projY * 0.5),
             0
           );
-          desiredPos.current.set(-28, 12.2, isMobile ? 15.5 : 19.5);
+          desiredPos.current.set(-34, 13.0, isMobile ? 18.5 : 23.0);
         } else if (playbackTimeS < impT) {
           // Faza 2: Dynamiczna Kamera Kuli (Bullet-Cam) lecąca za wirującym głazem
           // (w stronę zamku +X albo w tył na własny obóz -X przy samobóju!)
           const dirX = pose.projVx < -1.0 ? -1 : 1;
           desiredPos.current.set(
-            pose.projX - dirX * (isMobile ? 18.5 : 15.5),
-            Math.max(2.6, pose.projY + 2.5),
-            isMobile ? 8.2 : 9.6
+            pose.projX - dirX * (isMobile ? 19.5 : 16.5),
+            Math.max(2.8, pose.projY + 2.6),
+            isMobile ? 8.8 : 10.2
           );
           desiredTarget.current.set(
             pose.projX + dirX * 26,
@@ -469,27 +483,28 @@ function SiegeCameraRig({
             0
           );
         } else {
-          // Faza 3: Uderzenie w mur / Gdanisko / fosę / kocioł w obozie + Camera Shake!
+          // Faza 3: Uderzenie w mur / Gdanisko / fosę / kocioł w obozie + zatrzymanie na wyłomie po strzale!
           const dirX = activeResult.impactDistanceM < -4 ? -1 : 1;
           const ix = activeResult.impactDistanceM;
-          const iy = Math.max(1.2, activeResult.impactHeightM);
+          const iy = Math.max(1.4, activeResult.impactHeightM);
           desiredPos.current.set(
-            ix - dirX * (isMobile ? 25 : 21),
-            Math.max(4.4, iy + 3.4),
-            isMobile ? 12.5 : 14.5
+            ix - dirX * (isMobile ? 27 : 23),
+            Math.max(4.8, iy + 4.2),
+            isMobile ? 14.0 : 16.5
           );
-          desiredTarget.current.set(ix, iy, 0);
+          desiredTarget.current.set(ix, iy + (hasSettledImpact ? 1.2 : 0), 0);
         }
       }
     } else {
       // Spoczynkowy kadr heroiczny ("trebuchet" lub "auto" przed strzałem):
-      // Blida na pierwszym planie + zamek krzyżacki widoczny w teleobiektywie fov=26!
+      // Pełna sylwetka 15,9-metrowej blidy od kołowrotu i palca po koryto + zamek krzyżacki na horyzoncie!
+      const beamUprightLift = activeResult && playbackTimeS > 0 ? 3.4 : 0;
       if (isMobile) {
-        desiredPos.current.set(-45.5, 9.4, 8.35);
-        desiredTarget.current.set(25.0, 8.1, -1.05);
+        desiredPos.current.set(-66.0, 15.0 + beamUprightLift * 0.6, 18.5);
+        desiredTarget.current.set(24.0, 10.2 + beamUprightLift, -0.8);
       } else {
-        desiredPos.current.set(-33.5, 9.6, 16.2);
-        desiredTarget.current.set(18.5, 8.0, -1.55);
+        desiredPos.current.set(-58.0, 15.2 + beamUprightLift * 0.6, 42.0);
+        desiredTarget.current.set(18.0, 11.2 + beamUprightLift, -1.2);
       }
     }
 
@@ -716,12 +731,12 @@ function Fallback2DSiegeView<TCapture>({
           onClick={() => {
             onFirstInteract?.();
             onChangeCounterweight(
-              config.counterweightMassKg >= 15000 ? 4000 : config.counterweightMassKg + 1000
+              config.counterweightMassKg >= 16000 ? 3000 : config.counterweightMassKg + 1000
             );
           }}
           className="rounded bg-stone-800 px-2 py-1 hover:bg-stone-700 disabled:opacity-40"
         >
-          Skrzynia {(config.counterweightMassKg / 1000).toFixed(1)}t
+          Skrzynia {(config.counterweightMassKg / 1000).toFixed(1).replace(".", ",")} t
         </button>
         <button
           type="button"
@@ -790,9 +805,9 @@ export function TrebuchetCanvas<TCapture = CanvasCaptureFn>(
     <WebGLErrorBoundary fallback={fallbackNode}>
       <div className="relative h-full w-full touch-none overflow-hidden select-none">
         <Canvas
-          shadows
+          shadows="percentage"
           dpr={[1, 2]}
-          camera={{ position: [-34, 9.6, 16], fov: 26, near: 0.4, far: 650 }}
+          camera={{ position: [-58, 15.2, 42], fov: 32, near: 0.4, far: 650 }}
           gl={{
             antialias: true,
             powerPreference: "high-performance",
@@ -862,6 +877,14 @@ export function TrebuchetCanvas<TCapture = CanvasCaptureFn>(
             color="#ff8c2b"
             intensity={11}
             distance={24}
+            decay={2}
+          />
+          {/* Ciepłe kontrowe światło wydobywające bryłę dębowej skrzyni przeciwwagi i głazów na tle zmierzchu */}
+          <pointLight
+            position={[4.2, 10.8, 5.2]}
+            color="#ffb36b"
+            intensity={8.5}
+            distance={18}
             decay={2}
           />
 

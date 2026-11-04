@@ -65,6 +65,8 @@ export interface ShotSimulationResult {
   releaseSpeedKmh: number;
   releaseAngleDeg: number;
   kineticEnergyKj: number;
+  /** Energia kinetyczna w chwili uderzenia w cel/ podłoże [kJ] (po stratach oporu powietrza i wzniosie celu) */
+  impactKineticEnergyKj: number;
   potentialEnergyDropKj: number;
   /** Sprawność transferu energii z opadającej skrzyni do pocisku [%] */
   energyEfficiencyPct: number;
@@ -128,6 +130,7 @@ export type VoiceEventId =
   | "zenith_self_hit"
   | "ground_slam"
   | "short_moat"
+  | "overshot"
   | "wall_bounce"
   | "near_miss"
   | "direct_hit"

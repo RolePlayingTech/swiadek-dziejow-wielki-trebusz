@@ -79,7 +79,7 @@ export const VOICE_MANIFEST: Record<VoiceEventId, VoiceClipMeta> = {
     event: "zenith_self_hit",
     categoryLabel: "Świeca nad blidą!",
     fileUrl: assetUrl("/audio/vo-06.mp3"),
-    durationMs: 7812,
+    durationMs: 5859,
     priority: 3,
     cooldownMs: 4000,
     subtitlePl:
@@ -106,6 +106,17 @@ export const VOICE_MANIFEST: Record<VoiceEventId, VoiceClipMeta> = {
     cooldownMs: 5000,
     subtitlePl:
       "Karpie w krzyżackiej fosie ogłuszone, ale kurtyna cała! Dołóż kamieni do skrzyni albo skoryguj palec.",
+  },
+  overshot: {
+    clipId: "vo-16",
+    event: "overshot",
+    categoryLabel: "Przelot nad zamkiem!",
+    fileUrl: assetUrl("/audio/vo-16.mp3"),
+    durationMs: 6942,
+    priority: 2,
+    cooldownMs: 4500,
+    subtitlePl:
+      "Za daleko! Głaz przeleciał wysoko nad blankami zamku! Ujmij kamieni ze skrzyni albo zwiększ kąt palca.",
   },
   wall_bounce: {
     clipId: "vo-09",
@@ -143,7 +154,7 @@ export const VOICE_MANIFEST: Record<VoiceEventId, VoiceClipMeta> = {
   gdanisko_hit: {
     clipId: "vo-12",
     event: "gdanisko_hit",
-    categoryLabel: "Sekret: Gdanisko!",
+    categoryLabel: "Sekret: Gdanisko (latryna komtura!)",
     fileUrl: assetUrl("/audio/vo-12.mp3"),
     durationMs: 6674,
     priority: 3,

@@ -10,16 +10,22 @@ import type {
   TrebuchetConfig,
 } from "@/types/trebuchet";
 import {
+  COCKED_BEAM_ANGLE_RAD,
+  PROJECTILES,
+  RIGID_LOCK_ANGLE_SUM_RAD,
+  TREBUCHET_DIMENSIONS,
+} from "@/engine/trebuchetPhysics";
+import {
   createChamferedTimberGeometry,
   createTaperedMainBeamGeometry,
   getProceduralMaterials,
   mergeStaticGeometries,
 } from "./proceduralMaterials";
 
-export const AXLE_HEIGHT_M = 11.4;
-export const TOTAL_BEAM_LENGTH_M = 15.9;
-const DEFAULT_LONG_ARM_M = 12.75;
-const DEFAULT_SHORT_ARM_M = TOTAL_BEAM_LENGTH_M - DEFAULT_LONG_ARM_M; // 3.15 m
+export const AXLE_HEIGHT_M = TREBUCHET_DIMENSIONS.axleHeightM;
+const DEFAULT_LONG_ARM_M = TREBUCHET_DIMENSIONS.longArmM;
+const DEFAULT_SHORT_ARM_M = TREBUCHET_DIMENSIONS.shortArmM;
+export const TOTAL_BEAM_LENGTH_M = DEFAULT_LONG_ARM_M + DEFAULT_SHORT_ARM_M;
 
 export interface SampledTrebuchetPose {
   t: number;
@@ -78,27 +84,33 @@ export function sampleTrebuchetPose(
   if (!activeResult || activeResult.frames.length === 0) {
     const longArmM = DEFAULT_LONG_ARM_M;
     const shortArmM = DEFAULT_SHORT_ARM_M;
-    const tipY = 1.75;
-    const dy = tipY - AXLE_HEIGHT_M;
-    const tipX = -Math.sqrt(Math.max(1, longArmM * longArmM - dy * dy));
-    const thetaLongRad = Math.atan2(dy, tipX);
+    const hangerLen = TREBUCHET_DIMENSIONS.hangerLengthM;
+    const theta0 = COCKED_BEAM_ANGLE_RAD;
+    const alpha0 = config.hingedCounterweight ? 0 : RIGID_LOCK_ANGLE_SUM_RAD - theta0;
+
+    const tipX = -longArmM * Math.sin(theta0);
+    const tipY = AXLE_HEIGHT_M - longArmM * Math.cos(theta0);
+    const thetaLongRad = Math.atan2(tipY - AXLE_HEIGHT_M, tipX);
     const shortTipX = -shortArmM * Math.cos(thetaLongRad);
     const shortTipY = AXLE_HEIGHT_M - shortArmM * Math.sin(thetaLongRad);
 
-    const hangerLen = 2.65;
-    const worldBoxX = config.hingedCounterweight
-      ? shortTipX
-      : shortTipX + Math.sin(thetaLongRad) * hangerLen;
-    const worldBoxY = config.hingedCounterweight
-      ? shortTipY - hangerLen
-      : shortTipY - Math.cos(thetaLongRad) * hangerLen;
-    const boxTiltRad = config.hingedCounterweight ? 0 : thetaLongRad + Math.PI * 0.5;
+    const worldBoxX = shortArmM * Math.sin(theta0) + hangerLen * Math.sin(alpha0);
+    const worldBoxY = AXLE_HEIGHT_M + shortArmM * Math.cos(theta0) - hangerLen * Math.cos(alpha0);
+    const boxTiltRad = Math.atan2(worldBoxX - shortTipX, -(worldBoxY - shortTipY));
 
-    const projY = projRadius + 0.08;
-    const horizSling = Math.sqrt(
-      Math.max(0.5, config.slingLengthM * config.slingLengthM - (tipY - projY) * (tipY - projY))
+    const physRadiusM = (PROJECTILES[config.projectileId] ?? PROJECTILES.granit_100).radiusM;
+    const yGroundRel = physRadiusM - AXLE_HEIGHT_M;
+    const cosPhi0 = THREE.MathUtils.clamp(
+      (-yGroundRel - longArmM * Math.cos(theta0)) / config.slingLengthM,
+      -0.995,
+      0.995
     );
-    const projX = tipX + horizSling;
+    const phi0 = -Math.acos(cosPhi0);
+    const projX = -longArmM * Math.sin(theta0) - config.slingLengthM * Math.sin(phi0);
+    const projY = Math.max(
+      projRadius * 0.65,
+      AXLE_HEIGHT_M - longArmM * Math.cos(theta0) - config.slingLengthM * Math.cos(phi0)
+    );
 
     return {
       t: 0,
@@ -131,12 +143,8 @@ export function sampleTrebuchetPose(
       : DEFAULT_LONG_ARM_M;
   const shortArmM = Math.max(2.1, TOTAL_BEAM_LENGTH_M - longArmM);
 
-  // Detekcja czy boxY jest względem osi (0, axleHeightM) zgodnie z typem, czy w układzie świata
-  let minRawBoxY = Infinity;
-  for (let i = 0; i < frames.length; i += Math.max(1, Math.floor(frames.length / 16))) {
-    if (frames[i].boxY < minRawBoxY) minRawBoxY = frames[i].boxY;
-  }
-  const boxYOffset = minRawBoxY < 2.2 ? AXLE_HEIGHT_M : 0;
+  // W silniku fizycznym boxY jest liczone względem osi obrotu (0, AXLE_HEIGHT_M)
+  const boxYOffset = AXLE_HEIGHT_M;
 
   const targetT = !isFiring && playbackTimeS <= 0 ? 0 : Math.max(0, playbackTimeS);
 
@@ -174,9 +182,7 @@ export function sampleTrebuchetPose(
   // Kąt nachylenia zawiesia skrzyni wynika jednoznacznie z wektora od czopa krótkiego ramienia do środka skrzyni
   const hangerDx = worldBoxX - shortTipX;
   const hangerDy = worldBoxY - shortTipY;
-  const boxTiltRad = config.hingedCounterweight
-    ? Math.atan2(hangerDx, -hangerDy)
-    : thetaLongRad + Math.PI * 0.5;
+  const boxTiltRad = Math.atan2(hangerDx, -hangerDy);
 
   const projX = a.projX + (b.projX - a.projX) * alpha;
   const projY = Math.max(projRadius * 0.65, a.projY + (b.projY - a.projY) * alpha);
@@ -521,31 +527,25 @@ export function TrebuchetModel({
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   }, [config.counterweightMassKg, stoneSeeds]);
 
-  // Dynamiczna geometria wygiętego żelaznego palca spustowego (0° = prosto, 80° = mocny hak!)
+  // Dynamiczna geometria kutego żelaznego palca spustowego (0° = prosto, 80° = mocny hak; czubek wskazuje dokładnie -δ na kątomierzu!)
   const prongGeometry = useMemo(() => {
     const angleRad = THREE.MathUtils.degToRad(THREE.MathUtils.clamp(config.prongAngleDeg, 0, 80));
     const prongLen = 0.96;
     const pts: THREE.Vector3[] = [];
     const segs = 12;
 
+    const ctrlAng = -0.46 * angleRad;
+    const ctrlX = 0.48 * prongLen * Math.cos(ctrlAng);
+    const ctrlY = 0.48 * prongLen * Math.sin(ctrlAng);
+    const endX = prongLen * Math.cos(-angleRad);
+    const endY = prongLen * Math.sin(-angleRad);
+
     for (let i = 0; i <= segs; i++) {
       const t = i / segs;
-      if (angleRad < 0.015) {
-        pts.push(new THREE.Vector3(t * prongLen, 0, 0));
-      } else {
-        // Zagięcie zgodne z kierunkiem ruchu wskazówek zegara (w lokalnym układzie belki to -Y? Sprawdźmy!)
-        // Belka w chwili strzału obraca się ZGODNIE z ruchem wskazówek zegara w płaszczyźnie XY (dTheta/dt < 0? Zaraz zweryfikujemy!):
-        // Sprawdźmy znak! W spoczynku tip = (-8.3, 1.75), theta = -131° (-2.30 rad).
-        // Podczas strzału czubek leci w lewo-górę: (-12.75, 11.4) -> theta = ±180°, potem na szczyt (0, 24.15) -> theta = +90° (+1.57 rad),
-        // potem w prawo (castle +X): (+9, 20) -> theta = +42°!
-        // Zatem theta maleje: -131° -> -180° (+180°) -> +90° -> +45°!
-        // W lokalnym układzie belki, gdzie +X to kierunek wzdłuż długiego ramienia na zewnątrz,
-        // na szczycie (theta = +90°): lokalne +X wskazuje w górę (0, +1), a lokalne -Y wskazuje w stronę zamku (+1, 0)!
-        // Zatem wygięcie palca W PRZÓD (w stronę zamku na zenicie, czyli zgodnie z ruchem belki) to lokalne -Y!
-        const R = prongLen / angleRad;
-        const phi = t * angleRad;
-        pts.push(new THREE.Vector3(R * Math.sin(phi), -R * (1 - Math.cos(phi)), 0));
-      }
+      const omt = 1 - t;
+      const px = 2 * omt * t * ctrlX + t * t * endX;
+      const py = 2 * omt * t * ctrlY + t * t * endY;
+      pts.push(new THREE.Vector3(px, py, 0));
     }
 
     const curve = new THREE.CatmullRomCurve3(pts);
@@ -741,14 +741,14 @@ export function TrebuchetModel({
     const prongAngleRad = THREE.MathUtils.degToRad(config.prongAngleDeg);
     const prongLen = 0.96;
     const slideT = pose.ringSlideProgress;
-    let localRingX = slideT * prongLen;
-    let localRingY = 0;
-    if (prongAngleRad >= 0.015) {
-      const R = prongLen / prongAngleRad;
-      const phi = slideT * prongAngleRad;
-      localRingX = R * Math.sin(phi);
-      localRingY = -R * (1 - Math.cos(phi));
-    }
+    const omt = 1 - slideT;
+    const ctrlAng = -0.46 * prongAngleRad;
+    const ctrlX = 0.48 * prongLen * Math.cos(ctrlAng);
+    const ctrlY = 0.48 * prongLen * Math.sin(ctrlAng);
+    const endX = prongLen * Math.cos(-prongAngleRad);
+    const endY = prongLen * Math.sin(-prongAngleRad);
+    const localRingX = 2 * omt * slideT * ctrlX + slideT * slideT * endX;
+    const localRingY = 2 * omt * slideT * ctrlY + slideT * slideT * endY;
     const cosB = Math.cos(pose.thetaLongRad);
     const sinB = Math.sin(pose.thetaLongRad);
     const worldProngRingX = pose.tipX + localRingX * cosB - localRingY * sinB;
@@ -1127,7 +1127,7 @@ export function TrebuchetModel({
     !isFiring && (draggingPart === "prong" || hoveredPart === "prong" || isProngZoom || !hasInteracted);
   const isIncendiary = config.projectileId === "smola_85";
   const projVisualRadius = getProjectileVisualRadius(config.projectileId);
-  const isBackfireDanger = config.prongAngleDeg <= 9;
+  const isBackfireDanger = config.prongAngleDeg <= 7;
 
   // Zespolone geometrie statyczne redukujące liczbę draw calli poniżej 25 w całej scenie!
   const beamCollarsGeo = useMemo(() => {
@@ -1302,24 +1302,18 @@ export function TrebuchetModel({
         <mesh geometry={beamCollarsGeo} material={mats.forgedIron} castShadow />
 
         {/* Gdy skrzynia jest ZABLOKOWANA NA SZTYWNO (hingedCounterweight === false):
-            zespolone czerwono-stalowe rygle zastrzałowe spinające belkę na sztywno ze skrzynią! */}
+            ciesielskie dębowe zastrzały okute żelazem spinające krótkie ramię ze skrzynią! */}
         {!config.hingedCounterweight && (
           <mesh
-            position={[-armDims.shortArmM * 0.62, -1.15, 0]}
+            position={[-armDims.shortArmM * 0.58, -1.08, 0]}
             geometry={rigidLockBarsGeo}
+            material={mats.agedOak}
             castShadow
-          >
-            <meshStandardMaterial
-              color="#992a1e"
-              metalness={0.78}
-              roughness={0.34}
-              emissive="#4a0f08"
-              emissiveIntensity={0.35}
-            />
-          </mesh>
+            receiveShadow
+          />
         )}
 
-        {/* === UCHWYT DOTYKOWY #1: Żelazno-mosiężny Palec Spustowy (0°..80°) na czubku belki === */}
+        {/* === UCHWYT DOTYKOWY #1: Kuty Żelazny Palec Spustowy (0°..80°) w mosiężnej tulei === */}
         <group position={[armDims.longArmM, 0, 0]}>
           {/* Mosiężna tuleja osadcza palca */}
           <mesh
@@ -1331,18 +1325,18 @@ export function TrebuchetModel({
             <cylinderGeometry args={[0.145, 0.165, 0.28, 12]} />
           </mesh>
 
-          {/* Wyginający się dynamicznie palec spustowy */}
+          {/* Wyginający się dynamicznie kuty żelazny palec spustowy */}
           <mesh geometry={prongGeometry} castShadow>
             <meshStandardMaterial
-              map={mats.polishedBrass.map}
-              roughnessMap={mats.polishedBrass.roughnessMap}
-              bumpMap={mats.polishedBrass.bumpMap}
-              bumpScale={0.016}
-              color={prongHighlighted ? "#ffd978" : "#eab344"}
-              metalness={0.88}
-              roughness={0.2}
-              emissive={isBackfireDanger ? "#b91c1c" : "#9a6410"}
-              emissiveIntensity={prongHighlighted ? 0.62 : hasInteracted ? 0.28 : 0.46}
+              map={mats.forgedIron.map}
+              roughnessMap={mats.forgedIron.roughnessMap}
+              bumpMap={mats.forgedIron.bumpMap}
+              bumpScale={0.02}
+              color={prongHighlighted ? "#a8b3c4" : "#6b7482"}
+              metalness={0.86}
+              roughness={0.32}
+              emissive={isBackfireDanger ? "#b91c1c" : prongHighlighted ? "#d4a054" : "#4b3614"}
+              emissiveIntensity={prongHighlighted ? 0.48 : isBackfireDanger ? 0.52 : hasInteracted ? 0.16 : 0.3}
             />
           </mesh>
 
@@ -1359,8 +1353,8 @@ export function TrebuchetModel({
                   depthWrite={false}
                 />
               </mesh>
-              <mesh rotation={[0, 0, -THREE.MathUtils.degToRad(9)]}>
-                <ringGeometry args={[1.15, 1.31, 8, 1, 0, THREE.MathUtils.degToRad(9)]} />
+              <mesh rotation={[0, 0, -THREE.MathUtils.degToRad(7.5)]}>
+                <ringGeometry args={[1.15, 1.31, 8, 1, 0, THREE.MathUtils.degToRad(7.5)]} />
                 <meshBasicMaterial
                   color="#ef4444"
                   transparent

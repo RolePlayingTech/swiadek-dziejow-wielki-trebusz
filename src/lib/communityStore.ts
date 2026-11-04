@@ -24,47 +24,18 @@ export interface PersistedCommunityData {
 }
 
 /**
- * Kalibracyjny rozkład początkowy z testów poligonowych (48 kampanii):
- * realistyczna krzywa z garbem samobójów w obóz (koszyk 0–1) oraz głównym skupiskiem puszkarzy (400–700 pkt),
- * dzięki czemu wykres 20 słupków i percentyle są czytelne już od pierwszego gracza na nowej instancji.
+ * Uczciwy, zerowy stan początkowy księgi społeczności na świeżej instancji produkcyjnej
+ * (zero sztucznie pre-seedowanych gier).
  */
-function createSeededInitialData(): PersistedCommunityData {
-  const buckets = [
-    4, // 0..49   (samobóje w obóz / wbicie w ziemię)
-    3, // 50..99
-    2, // 100..149
-    2, // 150..199
-    3, // 200..249
-    3, // 250..299
-    3, // 300..349
-    4, // 350..399
-    4, // 400..449
-    5, // 450..499
-    4, // 500..549
-    3, // 550..599
-    2, // 600..649
-    2, // 650..699
-    1, // 700..749
-    1, // 750..799
-    1, // 800..849
-    1, // 850..899
-    0, // 900..949
-    0, // 950..1000
-  ];
-  const totalRuns = buckets.reduce((acc, n) => acc + n, 0); // 48
-  const scoreSum = buckets.reduce(
-    (acc, count, idx) => acc + count * Math.round((idx + 0.5) * BUCKET_WIDTH),
-    0
-  );
-
+function createEmptyInitialData(): PersistedCommunityData {
   return {
     version: 1,
-    buckets,
-    totalRuns,
-    scoreSum,
-    maxScore: 874,
-    gdaniskoHits: 7,
-    campBackfires: 19,
+    buckets: new Array<number>(BUCKET_COUNT).fill(0),
+    totalRuns: 0,
+    scoreSum: 0,
+    maxScore: 0,
+    gdaniskoHits: 0,
+    campBackfires: 0,
     recentRunIds: [],
     updatedAtIso: new Date().toISOString(),
   };
@@ -118,6 +89,10 @@ export function computeInterpolatedPercentile(
 ): number {
   const clampedScore = Math.max(0, Math.min(SCORE_CAP, score));
   const total = buckets.reduce((acc, v) => acc + (Number.isFinite(v) && v > 0 ? v : 0), 0);
+
+  if (clampedScore <= 0) {
+    return 0;
+  }
 
   if (total <= 0) {
     return Math.max(1, Math.min(99, Math.round((clampedScore / SCORE_CAP) * 98 + 1)));
@@ -252,24 +227,27 @@ async function ensureStoreLoaded(): Promise<PersistedCommunityData> {
       singleton.loadedPath = targetPath;
       return singleton.data;
     }
+    // Plik istnieje, ale nie przechodzi walidacji schematu — zachowaj kopię zapasową .corrupt.bak
+    await fs.copyFile(targetPath, `${targetPath}.corrupt.${Date.now()}.bak`).catch(() => {});
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code;
     if (code !== "ENOENT") {
-      // W razie uszkodzenia pliku na dysku inicjalizujemy świeży stan kalibracyjny i nadpisujemy atomowo
+      // W razie uszkodzenia pliku JSON na dysku zachowaj kopię zapasową przed reinicjalizacją
+      await fs.copyFile(targetPath, `${targetPath}.corrupt.${Date.now()}.bak`).catch(() => {});
     }
   }
 
-  const seeded = createSeededInitialData();
-  singleton.data = seeded;
+  const fresh = createEmptyInitialData();
+  singleton.data = fresh;
   singleton.loadedPath = targetPath;
 
   try {
-    await atomicWriteJsonWithFsync(targetPath, seeded);
+    await atomicWriteJsonWithFsync(targetPath, fresh);
   } catch {
     // Nawet na systemie plików tylko-do-odczytu stan w RAM nadal działa bezbłędnie
   }
 
-  return seeded;
+  return fresh;
 }
 
 function toSnapshot(data: PersistedCommunityData): CommunityStatsSnapshot {

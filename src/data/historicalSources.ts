@@ -73,11 +73,11 @@ export const HISTORICAL_FACTS: HistoricalFactEntry[] = [
     yearLabel: "ok. 1405",
     titlePl: "Traktat „Bellifortis” Konrada Kyesera z Eichstätt",
     sourceCitationPl:
-      "Konrad Kyeser, Bellifortis (ok. 1405), rękopis pergaminowy SUB Göttingen, Cod. Ms. Philos. 63 (Domena Publiczna).",
+      "Konrad Kyeser, Bellifortis (ok. 1405), rękopis pergaminowy SUB Göttingen, Cod. Ms. Philos. 63, fol. 30r (Domena Publiczna).",
     summaryPl:
-      "Najsłynniejszy ilustrowany traktat techniki wojennej przełomu XIV i XV w. podaje dokładne wymiary wielkiej blidy w stopach: długie ramię ok. 44–45 stóp (~13,25 m), krótkie ramię ok. 8,5–9 stóp (~2,65 m, klasyczne przełożenie 5:1), oś podparta na wysokości ok. 38 stóp (~11,4 m), wahliwa skrzynia przeciwwagi (arca) oraz długie drewniane koryto prowadzące pocisk po ziemi pod belką.",
+      "Najsłynniejszy ilustrowany traktat techniki wojennej przełomu XIV i XV w. (fol. 30r) wymiaruje wielką blidę w stopach roboczych: belka główna (rutta) liczy 54 stopy (46 + 8 stóp, ok. 5,75:1), bok trójkątnego kozła 46 stóp, wahliwa skrzynia przeciwwagi (arca) oraz długie drewniane koryto prowadzące pod belką. W naszym modelu przyjęliśmy skalibrowany wariant bojowy 15,9 m (13,25 m : 2,65 m, klasyczne przełożenie 5,0:1 z analizy D. B. Siano 2001) z osią na wysokości 11,4 m.",
     keyTakeawayPl:
-      "Wszystkie wymiary geometryczne w naszym silniku fizycznym (`TREBUCHET_DIMENSIONS`) pochodzą wprost z proporcji traktatu Konrada Kyesera.",
+      "Geometria naszej blidy (`TREBUCHET_DIMENSIONS`) łączy konstrukcję kozła, skrzyni i koryta z traktatu Kyesera ze skalibrowanym przełożeniem 5,0:1.",
   },
   {
     id: "opus-emplectum-gdanisko",
@@ -151,22 +151,22 @@ export const PHYSICS_MODEL_NOTES: PhysicsModelEntry[] = [
   {
     id: "wahliwa-vs-sztywna",
     badge: "rekonstrukcja",
-    titlePl: "Dlaczego wahliwa skrzynia bije sztywną o 28–34% zasięgu?",
+    titlePl: "Dlaczego wahliwa skrzynia bije sztywną o ok. 30% zasięgu?",
     formulaLatexLike:
-      "hinged = false  ⇒  α(θ) = const − θ,   I_eff = M₁₁ − 2M₁₂ + M₂₂   (spadek η z ~37% do ~23%)",
+      "hinged = false  ⇒  θ + α = 1,48 rad,   I_eff = M₁₁ − 2M₁₂ + M₂₂   (9 t: spadek zasięgu z 245 m do 170 m, η z 34,3% do 28,4%)",
     explanationPl:
-      "Gdy zablokujesz skrzynię zastrzałami na sztywno z belką, 9-tonowy kufer musi obracać się razem z ramieniem (ogromny pasożytniczy moment bezwładności), środek masy opada po płytszym łuku, a pod koniec suwu znika efekt dynamicznego wyhamowania belki przez wahadło skrzyni. Czysta mechanika obniża sprawność η i zasięg o ok. 30%!",
+      "Gdy zablokujesz skrzynię ciesielskimi zastrzałami pod krótkim ramieniem, wielotonowy kufer (I_box = 0,9 M) musi obracać się razem z belką, jego środek masy opada po płytszym łuku (mniejsze Δy), a pod koniec suwu znika efekt dynamicznego wyhamowania ramienia przez wahadło skrzyni. Czysta mechanika obniża zasięg o 28,6%–32,1% (dla 9 t: o 30,6%)!",
   },
   {
     id: "palec-spustowy-i-aerodynamika",
     badge: "rekonstrukcja",
     titlePl: "Geometria żelaznego palca spustowego (δ) i opór aerodynamiczny z wiatrem",
     formulaLatexLike:
-      "φ_slip ≈ θ_ref + δ_eff(δ) − π/2,     F⃗_d = −½ ρ_air C_d A |v⃗ − w⃗| (v⃗ − w⃗)",
+      "φ_slip = θ_ref + δ_eff(δ) − π/2,     F⃗_d = −½ ρ_air C_d A |v⃗ − w⃗| (v⃗ − w⃗)",
     explanationPl:
-      "Kąt wygięcia kutego palca δ (0°–80°) decyduje o momencie zsunięcia pierścienia procy: zbyt prosty bolec (0°–7°) zwalnia kulę podczas ruchu wstecznego prosto we własny obóz, 8°–13° strzela świecą w chmury, okno 26°–46° daje optymalny kąt wyrzutu 38°–47°, a zagięty hak (62°–80°) wbija głaz w ziemię przed kozłem.",
+      "Ciągła charakterystyka kutego palca δ (0°–80°) decyduje o chwili zsunięcia pierścienia procy: zbyt prosty bolec (0°–7°) zwalnia kulę w ruchu wstecznym prosto we własny obóz, 8°–13° strzela świecą w zenit nad kozłem, okno 26°–46° daje optymalny kąt wyrzutu 38°–47°, a zagięty hak (62°–80°) wbija głaz w ziemię przed machiną.",
     browserSimplificationNotePl:
-      "Uczciwe uproszczenia symulacji w przeglądarce: (1) ruch rozwiązujemy w pionowej płaszczyźnie strzału 2D (wiatr działa wzdłuż osi X bez bocznego znoszenia Z), (2) dębowe ramię traktujemy jako bryłę sztywną z nieliniowym tłumieniem czopów i drganiem przeciążeniowym zamiast pełnej siatki MES włókien drewna, (3) kruszenie muru wyliczamy dyskretnie z energii uderzenia E_k = ½mv² i kruchości strefy zamiast mikro-mechaniki pękania zaprawy wapiennej.",
+      "Uczciwe uproszczenia symulacji w przeglądarce: (1) ruch rozwiązujemy w pionowej płaszczyźnie strzału 2D z krokiem RK4 Δt = 4 ms (wiatr działa wzdłuż osi X jako czołowy lub tylny bez bocznego znoszenia Z), (2) opór aerodynamiczny zależy od pocisku (C_d = 0,47 dla kuli, 0,52 dla eratyka 145 kg, 0,60 dla beczki smolnej), (3) dębowe ramię traktujemy jako bryłę sztywną z nieliniowym tłumieniem czopów i drganiem przeciążeniowym, (4) kruszenie muru wyliczamy dyskretnie z energii uderzenia E_k = ½mv² w chwili kontaktu.",
   },
 ];
 

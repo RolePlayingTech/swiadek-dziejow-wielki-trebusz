@@ -122,14 +122,22 @@ export class HostVoiceDirector {
     this.onMuteChangedInternal?.(muted);
 
     if (muted) {
-      this.playGeneration += 1;
+      const muteGen = ++this.playGeneration;
+      this.clearSubtitleTimers();
       this.fadeOutActiveAudioOnly();
       this.setSfxDucked(false);
-      if (this.currentSubtitle && this.currentSubtitle.isAudioPlaying) {
+      if (this.currentSubtitle) {
         this.emitSubtitle({
           ...this.currentSubtitle,
           isAudioPlaying: false,
         });
+        this.subtitleClearTimer = setTimeout(() => {
+          if (this.playGeneration !== muteGen) return;
+          this.activeLogicalClip = null;
+          this.emitSubtitle(null);
+        }, SUBTITLE_HOLD_AFTER_END_MS + 650);
+      } else {
+        this.activeLogicalClip = null;
       }
     }
 
@@ -287,8 +295,8 @@ export class HostVoiceDirector {
     this.fadeOutEndsAtCtxTime = Math.max(this.fadeOutEndsAtCtxTime, fadeEnd);
 
     try {
-      active.gain.gain.cancelScheduledValues(now);
       const currentGain = clamp(active.gain.gain.value, 0.0001, 1.2);
+      active.gain.gain.cancelScheduledValues(now);
       active.gain.gain.setValueAtTime(currentGain, now);
       active.gain.gain.linearRampToValueAtTime(0.0001, fadeEnd);
       active.source.onended = null;
@@ -460,6 +468,7 @@ export class HostVoiceDirector {
     if (this.playGeneration !== generation || this.muted || ctx.state !== "running") {
       if (this.playGeneration === generation) {
         this.setSfxDucked(false);
+        this.emitSubtitleOnlyWindow(clip, generation);
       }
       return;
     }
@@ -707,8 +716,9 @@ export class TrebuchetSoundEngine {
 
     const now = this.ctx.currentTime;
     const param = this.sfxDuckGain.gain;
+    const currentVal = param.value;
     param.cancelScheduledValues(now);
-    param.setValueAtTime(param.value, now);
+    param.setValueAtTime(currentVal, now);
 
     if (ducked) {
       param.linearRampToValueAtTime(DUCK_LINEAR_GAIN, now + 0.045);
@@ -721,18 +731,18 @@ export class TrebuchetSoundEngine {
     if (!this.ctx || !this.masterMuteGain) return;
     const now = this.ctx.currentTime;
     const param = this.masterMuteGain.gain;
+    const currentVal = param.value;
     param.cancelScheduledValues(now);
-    param.setValueAtTime(param.value, now);
+    param.setValueAtTime(currentVal, now);
     param.linearRampToValueAtTime(muted ? 0.0 : 1.0, now + 0.025);
   }
 
   private getReadySfxTarget(): { ctx: AudioContext; out: AudioNode } | null {
     if (this.voice.isMuted()) return null;
     const ctx = this.ensureContext();
-    if (!ctx || !this.sfxDuckGain) return null;
+    if (!ctx || !this.sfxDuckGain || ctx.state === "closed") return null;
     if (ctx.state === "suspended") {
       ctx.resume().catch(() => {});
-      return null;
     }
     return { ctx, out: this.sfxDuckGain };
   }

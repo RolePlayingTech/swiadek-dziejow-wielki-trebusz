@@ -131,10 +131,10 @@ export function generateCampaignMissions(seed: number): SiegeMission[] {
     {
       index: 3,
       id: "salwa-4-gdanisko",
-      titlePl: "Salwa IV: Wykusz i Gdanisko Komtura",
-      subtitlePl: "Precyzyjny strzał mistrzowski w arkadę nad fosą",
+      titlePl: "Salwa IV: Gdanisko Komtura (Wieża Ustępowa)",
+      subtitlePl: "Strzał mistrzowski w latrynę zamkową zawieszoną nad fosą",
       historicalContextPl:
-        "Wysunięte daleko nad fosę na murowanych arkadach gdanisko (Dansker) pełniło w zamkach zakonnych rolę wieży ustępowej oraz ostatniej reduty. Rozbicie wykusza nad fosą daje premię mistrzowską i osobisty dyshonor dla komtura!",
+        "Wysunięte daleko nad fosę na murowanych arkadach gdanisko (Dansker) pełniło w zamkach zakonnych rolę wieży ustępowej — zamkowej toalety nad wodą — oraz ostatniej reduty. Rozbicie wykusza nad fosą to premia mistrzowska i osobisty dyshonor dla komtura!",
       castleDistanceM: dist4,
       targetCenterYM: 9.0,
       targetRadiusM: 3.3,
@@ -142,7 +142,7 @@ export function generateCampaignMissions(seed: number): SiegeMission[] {
       windSpeedMs: wind4,
       recommendedProjectileId: "granit_100",
       hintPl:
-        "Uwaga na prześwit pod arkadą (poniżej 4 m kula wpadnie do fosy, a za wysoko przeleci w kurtynę za gdaniskiem!). Skoryguj dokładnie masę skrzyni pod aktualny wiatr.",
+        "Celujesz w zamkową latrynę na arkadzie nad fosą! Poniżej 4 m kula wpadnie pod łukiem do wody, a za wysoko przeleci w kurtynę — dobierz masę skrzyni pod wiatr.",
     },
   ];
 }
@@ -157,9 +157,9 @@ export const RANKS: PlayerRank[] = [
     titlePl: "Tajny Agent Wielkiego Mistrza",
     badgeIcon: "✠",
     epigraphPl:
-      "„Kula ze świstem pomknęła na zachód — prosto w namioty własnej czeladzi i wozy z sucharami!”",
+      "„Kula ze świstem pomknęła na zachód — prosto w namioty własnej czeladzi i kocioł z grochówką!”",
     swiadekVerdictPl:
-      "Winrych von Kniprode już kazał wypisać Ci w Marienburger Tresslerbuch premię w grzywnach pruskich! Zbyt prosty palec spustowy wypuścił procę, zanim ramię minęło zenit — klasyczna katastrofa młodego cieśli.",
+      "Podskarbi wielkiego mistrza już kazał wypisać Ci w rachunkach malborskich premię w grzywnach pruskich! Zbyt prosty palec spustowy wypuścił procę przed zenitem — klasyczna katastrofa młodego cieśli.",
   },
   {
     id: "kopacz_studni",
@@ -217,11 +217,14 @@ export const RANKS: PlayerRank[] = [
  * Zwraca rangę gracza na podstawie łącznego wyniku 4 salw (0..1000) oraz flagi trafienia we własny obóz.
  */
 export function getRankForScore(score: number, hadCampBackfire = false): PlayerRank {
-  if (hadCampBackfire) {
+  const clampedScore = Number.isFinite(score)
+    ? Math.max(0, Math.min(SCORE_CAP, Math.round(score)))
+    : 0;
+
+  if (hadCampBackfire && clampedScore < 280) {
     return RANKS[0]; // Tajny Agent Wielkiego Mistrza
   }
 
-  const clampedScore = Math.max(0, Math.min(SCORE_CAP, Math.round(score)));
   let bestRank = RANKS[1]; // Kopacz Studni Obozowych
 
   for (let i = 1; i < RANKS.length; i++) {

@@ -93,8 +93,19 @@ function buildChallengeHeadline(challenge: ParsedChallenge): string {
   if (challenge.verified && challenge.callsign) {
     return `${challenge.callsign} rzuca Ci rękawicę: ${challenge.score} pkt!`;
   }
-  if (challenge.score === 0 && challenge.maxDistM < 0) {
-    return `Samobój w obóz (${Math.round(challenge.maxDistM)} m)! Pobijesz ten rzut?`;
+  if ((challenge.backfire && challenge.score < 280) || (challenge.score === 0 && challenge.maxDistM < 0)) {
+    const distPart =
+      challenge.maxDistM < 0 ? ` (${Math.round(challenge.maxDistM)} m)` : "";
+    return `Samobój w obóz${distPart}! Pobijesz ten rzut?`;
+  }
+  if (!challenge.verified) {
+    if (challenge.score > 0) {
+      return `Zmierz się w scenariuszu ${challenge.seedCode} (${challenge.score} pkt)!`;
+    }
+    return `Zmierz się pod tym samym wiatrem (${challenge.seedCode})!`;
+  }
+  if (challenge.score <= 0) {
+    return `Zmierz się w scenariuszu ${challenge.seedCode}!`;
   }
   return `Pobijesz wynik ${challenge.score} pkt?`;
 }
@@ -135,10 +146,29 @@ export async function GET(req: NextRequest): Promise<Response> {
       : undefined;
 
     const portraitUri = assets?.portraitDataUri ?? null;
-    const rank = challenge ? resolveRankForScore(challenge.score) : null;
+    const rank = challenge
+      ? resolveRankForScore(
+          challenge.score,
+          Boolean(challenge.backfire) && challenge.score < 280
+        )
+      : null;
     const headline = challenge ? buildChallengeHeadline(challenge) : "";
     const headlineFontSize =
-      challenge && headline.length > 36 ? "46px" : challenge ? "54px" : "52px";
+      challenge && headline.length > 42
+        ? "42px"
+        : challenge && headline.length > 34
+          ? "46px"
+          : challenge
+            ? "52px"
+            : "52px";
+
+    const showVerifiedPercentile = Boolean(
+      challenge &&
+        challenge.verified &&
+        challenge.percentile &&
+        challenge.percentile > 0 &&
+        challenge.score > 0
+    );
 
     return new ImageResponse(
       (
@@ -153,6 +183,7 @@ export async function GET(req: NextRequest): Promise<Response> {
               "radial-gradient(circle at 82% 22%, rgba(212, 160, 84, 0.24), rgba(8, 7, 10, 0) 54%), radial-gradient(circle at 16% 84%, rgba(78, 205, 196, 0.14), rgba(8, 7, 10, 0) 48%), linear-gradient(155deg, #0d0a0e 0%, #08070a 55%, #120e0b 100%)",
             color: "#f3ede2",
             fontFamily: '"Space Grotesk", sans-serif',
+            position: "relative",
           }}
         >
           {/* Zewnętrzna mosiężna ramka */}
@@ -165,8 +196,84 @@ export async function GET(req: NextRequest): Promise<Response> {
               border: "2px solid rgba(212, 160, 84, 0.55)",
               borderRadius: "14px",
               backgroundColor: "rgba(12, 10, 8, 0.58)",
+              position: "relative",
+              overflow: "hidden",
             }}
           >
+            {/* Techniczna sylwetka trebusza przeciwwagowego, paraboli lotu i zamku Zakonu w tle */}
+            <svg
+              width="760"
+              height="320"
+              viewBox="0 0 760 320"
+              style={{
+                position: "absolute",
+                right: "240px",
+                bottom: "56px",
+                opacity: 0.22,
+              }}
+            >
+              {/* Linia horyzontu */}
+              <line
+                x1="20"
+                y1="286"
+                x2="740"
+                y2="286"
+                stroke="#d4a054"
+                strokeWidth="1.5"
+                strokeDasharray="6 6"
+              />
+              {/* Kozły dębowe i śmigło trebusza po lewej */}
+              <path
+                d="M 56 286 L 98 164 L 140 286 M 44 286 L 154 286 M 74 234 L 122 234"
+                stroke="#f0c878"
+                strokeWidth="4"
+                fill="none"
+              />
+              {/* Belka główna 5:1 + wahliwa skrzynia przeciwwagi */}
+              <line
+                x1="62"
+                y1="194"
+                x2="188"
+                y2="112"
+                stroke="#f0c878"
+                strokeWidth="5"
+              />
+              <line
+                x1="66"
+                y1="192"
+                x2="66"
+                y2="220"
+                stroke="#d4a054"
+                strokeWidth="2.5"
+              />
+              <rect
+                x="50"
+                y="220"
+                width="32"
+                height="28"
+                rx="3"
+                stroke="#f0c878"
+                strokeWidth="2.5"
+                fill="rgba(212, 160, 84, 0.25)"
+              />
+              {/* Złota parabola balistyczna do zamku */}
+              <path
+                d="M 188 112 Q 410 -34 624 176"
+                stroke="#4ecdc4"
+                strokeWidth="3"
+                strokeDasharray="8 7"
+                fill="none"
+              />
+              <circle cx="624" cy="176" r="7" fill="#f0c878" />
+              {/* Sylwetka gotyckiej warowni po prawej */}
+              <path
+                d="M 568 286 L 568 196 L 598 196 L 598 148 L 616 116 L 634 148 L 634 188 L 676 188 L 676 138 L 708 138 L 708 286 Z"
+                stroke="#d4a054"
+                strokeWidth="2.5"
+                fill="rgba(212, 160, 84, 0.1)"
+              />
+            </svg>
+
             {/* Wewnętrzna giloszowa ramka */}
             <div
               style={{
@@ -178,6 +285,7 @@ export async function GET(req: NextRequest): Promise<Response> {
                 padding: "30px 40px",
                 border: "1px solid rgba(240, 200, 120, 0.24)",
                 borderRadius: "10px",
+                position: "relative",
               }}
             >
               {/* Górny pasek archiwalny */}
@@ -314,7 +422,9 @@ export async function GET(req: NextRequest): Promise<Response> {
                             color: "#f0c878",
                           }}
                         >
-                          {`Ranga: ${rank.titlePl}`}
+                          {challenge.verified || challenge.score > 0 || challenge.backfire
+                            ? `Ranga: ${rank.titlePl}`
+                            : ` Zaproszenie do pojedynku · ${challenge.seedCode}`}
                         </div>
                         {challenge.gdanisko ? (
                           <div
@@ -363,7 +473,7 @@ export async function GET(req: NextRequest): Promise<Response> {
                             flexDirection: "column",
                             padding: "12px 20px",
                             borderRadius: "10px",
-                            backgroundColor: "rgba(255, 255, 255, 0.035)",
+                            backgroundColor: "rgba(12, 10, 8, 0.78)",
                             border: "1px solid rgba(212, 160, 84, 0.34)",
                           }}
                         >
@@ -375,7 +485,7 @@ export async function GET(req: NextRequest): Promise<Response> {
                               color: "#c2b7a6",
                             }}
                           >
-                            WYNIK KAMPANII
+                            {challenge.verified ? "WYNIK KAMPANII" : "CEL DO POBICIA"}
                           </div>
                           <div
                             style={{
@@ -385,7 +495,9 @@ export async function GET(req: NextRequest): Promise<Response> {
                               color: "#f0c878",
                             }}
                           >
-                            {`${challenge.score} / 1000 pkt`}
+                            {challenge.score > 0 || challenge.verified
+                              ? `${challenge.score} / 1000 pkt`
+                              : "4 salwy oblężnicze"}
                           </div>
                         </div>
 
@@ -395,7 +507,7 @@ export async function GET(req: NextRequest): Promise<Response> {
                             flexDirection: "column",
                             padding: "12px 20px",
                             borderRadius: "10px",
-                            backgroundColor: "rgba(255, 255, 255, 0.035)",
+                            backgroundColor: "rgba(12, 10, 8, 0.78)",
                             border: "1px solid rgba(212, 160, 84, 0.28)",
                           }}
                         >
@@ -407,7 +519,7 @@ export async function GET(req: NextRequest): Promise<Response> {
                               color: "#c2b7a6",
                             }}
                           >
-                            NAJDALSZY RZUT
+                            {challenge.maxDistM !== 0 ? "NAJDALSZY RZUT" : "WARUNKI WIATRU"}
                           </div>
                           <div
                             style={{
@@ -417,19 +529,21 @@ export async function GET(req: NextRequest): Promise<Response> {
                               color: "#f3ede2",
                             }}
                           >
-                            {formatPolishMeters(challenge.maxDistM)}
+                            {challenge.maxDistM !== 0
+                              ? formatPolishMeters(challenge.maxDistM)
+                              : "Identyczne ziarno"}
                           </div>
                         </div>
 
-                        {challenge.percentile ? (
+                        {showVerifiedPercentile ? (
                           <div
                             style={{
                               display: "flex",
                               flexDirection: "column",
                               padding: "12px 20px",
                               borderRadius: "10px",
-                              backgroundColor: "rgba(78, 205, 196, 0.08)",
-                              border: "1px solid rgba(78, 205, 196, 0.36)",
+                              backgroundColor: "rgba(78, 205, 196, 0.1)",
+                              border: "1px solid rgba(78, 205, 196, 0.38)",
                             }}
                           >
                             <div

@@ -1,7 +1,13 @@
 import { ALLOWED_MODES, SCORE_CAP, type GameModeId } from "@/lib/config";
-import type { PlayerRank, RankId } from "@/types/trebuchet";
+import {
+  RANKS,
+  getDailyChallengeSeed as canonicalGetDailyChallengeSeed,
+  getRankForScore as canonicalGetRankForScore,
+  mulberry32 as canonicalMulberry32,
+} from "@/data/missionsAndRanks";
+import type { PlayerRank } from "@/types/trebuchet";
 
-export const DEFAULT_DEV_HMAC_SECRET = "swiadek-trebusz-dev-hmac-2026";
+const DEV_ONLY_HMAC_SECRET = "swiadek-trebusz-dev-hmac-local-only";
 
 export interface ChallengePayload {
   v: 1;
@@ -10,6 +16,7 @@ export interface ChallengePayload {
   score: number;
   maxDistM: number;
   gdanisko: boolean;
+  backfire?: boolean;
   percentile?: number;
   callsign?: string;
 }
@@ -32,19 +39,8 @@ export type ChallengeSearchInput =
   | null
   | undefined;
 
-/**
- * Deterministyczny generator liczb pseudolosowych 32-bit (Mulberry32).
- * Zwraca funkcję generującą liczby zmiennoprzecinkowe z przedziału [0, 1).
- */
-export function mulberry32(seed: number): () => number {
-  let state = seed >>> 0;
-  return function nextRandom(): number {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let t = Math.imul(state ^ (state >>> 15), 1 | state);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+export const mulberry32 = canonicalMulberry32;
+export const getDailyChallengeSeed = canonicalGetDailyChallengeSeed;
 
 const SEED_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"; // 32 jednoznaczne znaki (bez 0/O/1/I)
 
@@ -63,21 +59,6 @@ export function formatSeedCode(seed: number): string {
     chars += SEED_ALPHABET[idx];
   }
   return `#BL-${chars}`;
-}
-
-/**
- * Deterministyczne ziarno dnia (UTC YYYY-MM-DD) dla trybu „Wyzwanie Dnia”.
- */
-export function getDailyChallengeSeed(date: Date = new Date()): number {
-  const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(
-    date.getUTCDate()
-  ).padStart(2, "0")}`;
-  let h = 2166136261 >>> 0;
-  for (let i = 0; i < key.length; i++) {
-    h ^= key.charCodeAt(i);
-    h = Math.imul(h, 16777619) >>> 0;
-  }
-  return h >>> 0;
 }
 
 const CALLSIGN_ALLOWED_RE = /^[A-Za-z0-9ĄĆĘŁŃÓŚŹŻąćęłńóśźż _.-]{2,24}$/;
@@ -406,6 +387,7 @@ function normalizePayloadFields(
     score: clampedScore,
     maxDistM: clampedDist,
     gdanisko: Boolean(input.gdanisko),
+    ...(input.backfire ? { backfire: true } : {}),
   };
 
   if (includeSignedExtras) {
@@ -463,6 +445,7 @@ function validateDecodedPayloadObject(
     score: obj.score,
     maxDistM: Math.round(obj.maxDistM * 10) / 10,
     gdanisko: obj.gdanisko,
+    ...(obj.backfire === true ? { backfire: true } : {}),
   };
 
   // Pole callsign i percentile są honorowane WYŁĄCZNIE przy zweryfikowanym podpisie HMAC!
@@ -484,14 +467,17 @@ function validateDecodedPayloadObject(
   return payload;
 }
 
-function getHmacSecret(secretOverride?: string): string {
+function getServerHmacSecret(secretOverride?: string): string | null {
   if (typeof secretOverride === "string" && secretOverride.length > 0) {
     return secretOverride;
   }
   if (typeof process !== "undefined" && process.env && process.env.CHALLENGE_HMAC_SECRET) {
     return process.env.CHALLENGE_HMAC_SECRET;
   }
-  return DEFAULT_DEV_HMAC_SECRET;
+  if (typeof process !== "undefined" && process.env && process.env.NODE_ENV === "production") {
+    return null;
+  }
+  return DEV_ONLY_HMAC_SECRET;
 }
 
 /**
@@ -510,9 +496,13 @@ export function signChallengePayload(
   input: ChallengePayloadInput,
   secretOverride?: string
 ): string {
+  const secret = getServerHmacSecret(secretOverride);
+  if (!secret) {
+    return encodeUnsignedChallenge(input);
+  }
   const payload = normalizePayloadFields(input, true);
   const payloadB64 = encodeBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
-  const sigBytes = hmacSha256(getHmacSecret(secretOverride), payloadB64);
+  const sigBytes = hmacSha256(secret, payloadB64);
   const sigB64 = encodeBase64Url(sigBytes);
   return `${payloadB64}.${sigB64}`;
 }
@@ -591,17 +581,19 @@ export function parseAndVerifyChallenge(
       return null;
     }
 
-    const expectedSig = hmacSha256(getHmacSecret(secretOverride), payloadB64);
-    const sigMatches = timingSafeEqualBytes(providedSig, expectedSig);
-
-    if (sigMatches) {
+    if (typeof window === "undefined") {
+      const secret = getServerHmacSecret(secretOverride);
+      if (!secret) {
+        return null;
+      }
+      const expectedSig = hmacSha256(secret, payloadB64);
+      const sigMatches = timingSafeEqualBytes(providedSig, expectedSig);
+      if (!sigMatches) {
+        // Na serwerze sfałszowany/uszkodzony podpis HMAC jest bezwzględnie odrzucany!
+        return null;
+      }
       verified = true;
-    } else if (typeof window === "undefined") {
-      // Na serwerze sfałszowany/uszkodzony podpis HMAC jest bezwzględnie odrzucany!
-      return null;
     } else {
-      // W przeglądarce (gdzie produkcyjny CHALLENGE_HMAC_SECRET nie jest publiczny)
-      // pozwalamy odczytać samo ziarno i wynik rywala w trybie niezweryfikowanym (bez callsign).
       verified = false;
     }
   }
@@ -628,73 +620,11 @@ export function parseAndVerifyChallenge(
 }
 
 /**
- * Kanoniczna tabela 6 rang historycznych (zgodna z `RankId` w `src/types/trebuchet.ts`)
- * wykorzystywana przez `/api/og` oraz jako bezpieczny fallback w `ShareCardModal`.
+ * Jedno kanoniczne źródło 6 rang historycznych z `src/data/missionsAndRanks.ts`
+ * używane identycznie w grze, na karcie PNG oraz w `/api/og` i tagach OpenGraph.
  */
-export const FALLBACK_PLAYER_RANKS: readonly PlayerRank[] = [
-  {
-    id: "agent_zakonu" satisfies RankId,
-    minScore: 0,
-    titlePl: "Tajny Agent Wielkiego Mistrza",
-    badgeIcon: "🕵️",
-    epigraphPl: "Krzyżacy biją Ci brawo z blanków, a własny obóz gasi namioty.",
-    swiadekVerdictPl:
-      "Wielki Mistrz wysłał Ci właśnie sakiewkę grzywien w podzięce. Zamiast w zamek, posłałeś głaz prosto w nasze własne namioty!",
-  },
-  {
-    id: "kopacz_studni" satisfies RankId,
-    minScore: 100,
-    titlePl: "Kopacz Fosy i Kret Przedpola",
-    badgeIcon: "🕳️",
-    epigraphPl: "Ziemia przed machiną zryta jak po dzikach, mur zamkowy nietknięty.",
-    swiadekVerdictPl:
-      "Jeżeli celem było wykopanie nowej studni przed fosą — pełen sukces. Tylko zamek Zakonu wciąż stoi nietknięty.",
-  },
-  {
-    id: "czeladnik" satisfies RankId,
-    minScore: 280,
-    titlePl: "Czeladnik Ciesielski",
-    badgeIcon: "🪵",
-    epigraphPl: "Dębowa belka już słucha Twojej ręki, lecz palec spustowy bywa kapryśny.",
-    swiadekVerdictPl:
-      "Pierwsze cegły posypały się do fosy! Jeszcze parę stopni korekty na żelaznym palcu i krzyżacki mur zacznie pękać.",
-  },
-  {
-    id: "puszkarz" satisfies RankId,
-    minScore: 480,
-    titlePl: "Starszy Puszkarz Królewski",
-    badgeIcon: "⚙️",
-    epigraphPl: "Rozumiesz taniec wahliwej skrzyni i procy pod podmuchami wiatru.",
-    swiadekVerdictPl:
-      "Solidna inżynierska robota! Wahliwa skrzynia oddała energię jak w zegarku, a obrońcy uciekają z hurdycji.",
-  },
-  {
-    id: "mistrz_kowna" satisfies RankId,
-    minScore: 680,
-    titlePl: "Mistrz Oblężniczy spod Kowna",
-    badgeIcon: "🏰",
-    epigraphPl: "Każda salwa kruszy gotycką kurtynę z chirurgiczną precyzją.",
-    swiadekVerdictPl:
-      "Tak strzelano pod Kownem w 1362 roku! Sto kilogramów granitu wchodzi w ceglany mur jak gorący nóż w masło.",
-  },
-  {
-    id: "postrach_zakonu" satisfies RankId,
-    minScore: 850,
-    titlePl: "Postrach Zakonu · Arcymistrz Blidy",
-    badgeIcon: "👑",
-    epigraphPl: "Potrójne wahadło Lagrange’a nie ma przed Tobą najmniejszej tajemnicy.",
-    swiadekVerdictPl:
-      "Arcydzieło średniowiecznej balistyki! Gdybyś stał pod Malborkiem w 1410 roku, zamek padłby przed wieczorem.",
-  },
-];
+export const FALLBACK_PLAYER_RANKS: readonly PlayerRank[] = RANKS;
 
-export function resolveRankForScore(score: number): PlayerRank {
-  const safeScore = Number.isFinite(score) ? Math.max(0, Math.min(SCORE_CAP, Math.round(score))) : 0;
-  let matched = FALLBACK_PLAYER_RANKS[0];
-  for (const rank of FALLBACK_PLAYER_RANKS) {
-    if (safeScore >= rank.minScore) {
-      matched = rank;
-    }
-  }
-  return matched;
+export function resolveRankForScore(score: number, hadCampBackfire = false): PlayerRank {
+  return canonicalGetRankForScore(score, hadCampBackfire);
 }

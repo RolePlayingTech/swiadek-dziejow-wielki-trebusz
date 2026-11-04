@@ -24,7 +24,7 @@ export async function generateMetadata({
     return {
       title: "Wielki Trebusz: Tajemnica Palca Spustowego (3D) | Świadek Dziejów",
       description:
-        "Interaktywny eksponat i minigra 3D Świadka Dziejów. Naciągnij 15-metrową średniowieczną blidę, wygnij żelazny palec spustowy, odkryj fizykę potrójnego wahadła Lagrange’a i skrusz ceglany mur zamku Zakonu — albo zbombarduj własny obóz!",
+        "Interaktywny eksponat i minigra 3D Świadka Dziejów. Naciągnij 16-metrową średniowieczną blidę, wygnij żelazny palec spustowy, odkryj fizykę potrójnego wahadła Lagrange’a i skrusz ceglany mur zamku Zakonu — albo zbombarduj własny obóz!",
       openGraph: {
         title:
           "Wielki Trebusz: Tajemnica Palca Spustowego (3D) | Świadek Dziejów",
@@ -48,13 +48,39 @@ export async function generateMetadata({
         title:
           "Wielki Trebusz: Tajemnica Palca Spustowego (3D) | Świadek Dziejów",
         description:
-          "Odkryj tajemnicę 15-centymetrowego żelaznego palca na czubku średniowiecznej blidy 3D i rzuć wyzwanie znajomym!",
+          "Odkryj tajemnicę żelaznego palca spustowego na końcu 16-metrowej dębowej belki średniowiecznej blidy 3D i rzuć wyzwanie znajomym!",
         images: [`${SITE_ORIGIN}${BASE_PATH}/api/og`],
       },
     };
   }
 
-  const rank = resolveRankForScore(parsed.score);
+  // Tylko tokeny z zweryfikowanym podpisem HMAC serwera prezentują wynik i rangę jako rekord pojedynku
+  if (!parsed.verified) {
+    const inviteTitle = `Zaproszenie na poligon oblężniczy (${parsed.seedCode}) | Wielki Trebusz 3D`;
+    const inviteDesc = `Zmierz się w tym samym scenariuszu wiatru i dystansu (${parsed.seedCode}) w interaktywnej grze 3D Świadka Dziejów!`;
+    const ogImageUrl = `${SITE_ORIGIN}${BASE_PATH}/api/og?w=${encodeURIComponent(rawToken!)}`;
+    return {
+      title: inviteTitle,
+      description: inviteDesc,
+      openGraph: {
+        title: inviteTitle,
+        description: inviteDesc,
+        url: `${CANONICAL_URL}?w=${encodeURIComponent(rawToken!)}`,
+        siteName: "Świadek Dziejów",
+        locale: "pl_PL",
+        type: "website",
+        images: [{ url: ogImageUrl, width: 1200, height: 630, alt: inviteTitle }],
+      },
+      twitter: {
+        card: "summary_large_image",
+        title: inviteTitle,
+        description: inviteDesc,
+        images: [ogImageUrl],
+      },
+    };
+  }
+
+  const rank = resolveRankForScore(parsed.score, Boolean(parsed.backfire));
   const challengerPrefix = parsed.callsign
     ? `${parsed.callsign} rzuca Ci rękawicę: `
     : "Rzucono Ci rękawicę: ";
