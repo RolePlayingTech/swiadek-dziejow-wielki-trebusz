@@ -805,7 +805,7 @@ export function TrebuchetCanvas<TCapture = CanvasCaptureFn>(
     <WebGLErrorBoundary fallback={fallbackNode}>
       <div className="relative h-full w-full touch-none overflow-hidden select-none">
         <Canvas
-          shadows="percentage"
+          shadows={{ type: THREE.PCFShadowMap }}
           dpr={[1, 2]}
           camera={{ position: [-58, 15.2, 42], fov: 32, near: 0.4, far: 650 }}
           gl={{

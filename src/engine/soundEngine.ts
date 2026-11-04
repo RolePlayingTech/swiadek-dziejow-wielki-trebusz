@@ -575,11 +575,8 @@ export class TrebuchetSoundEngine {
 
   constructor() {
     this.voice = new HostVoiceDirector({
-      getContext: () => this.ensureContext(),
-      getVoiceBus: () => {
-        this.ensureContext();
-        return this.voiceBusGain;
-      },
+      getContext: () => this.ctx,
+      getVoiceBus: () => this.voiceBusGain,
       setSfxDucked: (ducked) => this.applySfxDucking(ducked),
       onMuteChanged: (muted) => this.applyMasterMute(muted),
     });

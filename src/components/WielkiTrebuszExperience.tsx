@@ -714,7 +714,7 @@ export default function WielkiTrebuszExperience({
     let prevWallMs = performance.now();
 
     const stepFrame = (nowMs: number) => {
-      const dtWall = Math.min(0.12, Math.max(0.001, (nowMs - prevWallMs) / 1000));
+      const dtWall = Math.min(2.0, Math.max(0.001, (nowMs - prevWallMs) / 1000));
       prevWallMs = nowMs;
       const speedScale = slowMotion
         ? 0.24
