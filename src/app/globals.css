@@ -1,0 +1,170 @@
+@import "tailwindcss";
+
+:root {
+  --bg-obsidian: #08070a;
+  --bg-mahogany: #120e0b;
+  --bg-panel: #161310;
+  --bg-hud-glass: rgba(12, 10, 8, 0.84);
+  --bg-footer: #060507;
+  --fg-ivory: #f3ede2;
+  --fg-muted: #c2b7a6;
+  --fg-dim: #9e9383;
+  --accent-brass: #d4a054;
+  --accent-gold: #f0c878;
+  --accent-emerald: #4ecdc4;
+  --accent-emerald-bright: #7ee8e0;
+  --accent-fever: #d94e34;
+  --accent-silver: #d8e2ec;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  background-color: var(--bg-obsidian);
+  color: var(--fg-ivory);
+  font-family: var(--font-body), system-ui, -apple-system, sans-serif;
+  overflow-x: hidden;
+  overscroll-behavior-y: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-serif-brand {
+  font-family: var(--font-serif), Georgia, serif;
+}
+
+.font-mono-brand {
+  font-family: var(--font-mono), ui-monospace, monospace;
+}
+
+/* Static archival film grain (zero GPU repaint overhead over WebGL canvas) */
+.film-grain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 45;
+  opacity: 0.026;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Engraved double brass border */
+.archival-frame {
+  border: 1px solid rgba(212, 160, 84, 0.28);
+  box-shadow:
+    inset 0 0 0 1px rgba(212, 160, 84, 0.08),
+    0 20px 50px rgba(0, 0, 0, 0.68);
+}
+
+.brass-glow {
+  box-shadow:
+    0 0 36px rgba(212, 160, 84, 0.2),
+    inset 0 1px 0 rgba(240, 200, 120, 0.28);
+}
+
+@keyframes fadeInSlide {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-toast {
+  animation: fadeInSlide 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes eqBar {
+  0%,
+  100% {
+    transform: scaleY(0.32);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.eq-bar-1 {
+  animation: eqBar 0.55s ease-in-out infinite;
+}
+.eq-bar-2 {
+  animation: eqBar 0.42s ease-in-out 0.14s infinite;
+}
+.eq-bar-3 {
+  animation: eqBar 0.64s ease-in-out 0.26s infinite;
+}
+
+@keyframes pulseBrass {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(240, 200, 120, 0.48);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(240, 200, 120, 0);
+  }
+}
+
+.pulse-brass-cta {
+  animation: pulseBrass 2.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-toast,
+  .eq-bar-1,
+  .eq-bar-2,
+  .eq-bar-3,
+  .pulse-brass-cta {
+    animation: none;
+  }
+}
+
+/* Tactile brass range slider thumb (40px touch hit area) */
+input[type="range"].brass-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 8px;
+  border-radius: 9999px;
+  background: rgba(243, 237, 226, 0.14);
+  touch-action: none;
+}
+
+input[type="range"].brass-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 26px;
+  width: 26px;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 35% 35%, #fff5d6, #d4a054 68%, #7d5219);
+  border: 2px solid #08070a;
+  box-shadow: 0 0 14px rgba(240, 200, 120, 0.52);
+  cursor: grab;
+}
+
+input[type="range"].brass-slider::-moz-range-thumb {
+  height: 26px;
+  width: 26px;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 35% 35%, #fff5d6, #d4a054 68%, #7d5219);
+  border: 2px solid #08070a;
+  box-shadow: 0 0 14px rgba(240, 200, 120, 0.52);
+  cursor: grab;
+}
+
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: #08070a;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(212, 160, 84, 0.34);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(212, 160, 84, 0.6);
+}
